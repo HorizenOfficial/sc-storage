@@ -8,6 +8,7 @@ pub mod storage;
 pub mod transaction;
 
 pub trait InternalRef {
+
     fn db_ref(&self) -> Option<&TransactionDB>;
     fn db_ref_mut(&mut self) -> Option<&mut TransactionDB>;
 
@@ -100,4 +101,14 @@ pub trait Reader: InternalReader {
     fn is_empty_cf(&self, cf: &ColumnFamily) -> Result<bool, Error> {
         Ok(self.iterator_cf_internal(cf,IteratorMode::Start)?.next().is_none())
     }
+}
+
+pub fn clear_path(path: &str) -> Result<(), Error> {
+    let path_sting = path.to_owned();
+    if std::path::Path::new(path_sting.as_str()).exists(){
+        if std::fs::remove_dir_all(path).is_err() {
+            return Err(Error::new(path_sting + " can't be removed".into()));
+        }
+    }
+    Ok(())
 }

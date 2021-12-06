@@ -29,13 +29,3 @@ impl Transaction {
         self.transaction.commit()
     }
 }
-
-#[cfg(test)]
-mod test {
-
-
-    #[test]
-    fn transaction_tests(){
-
-    }
-}

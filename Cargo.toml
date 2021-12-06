@@ -5,11 +5,11 @@ authors = ["Andrii Nastenko <andrii.nastenko@iohk.io>"]
 edition = "2018"
 
 [dependencies]
-#rocksdb = {version = "0.17.0", git = "https://github.com/HorizenOfficial/rust-rocksdb.git", branch = "transactions"}
-rocksdb = { path = "../../rocksdb/rust-wrapper/rust-rocksdb" }
+rocksdb = {version = "0.17.0", git = "https://github.com/HorizenOfficial/rust-rocksdb.git", branch = "transactions"}
+#rocksdb = { path = "../../rocksdb/rust-wrapper/rust-rocksdb" }
 rand = { version = "0.7" }
 itertools = { version = "0.9.0" }
-#sha1 = "0.6.0"
+fs_extra  = { version = "0.2.0" }
 
 
 [profile.release]
