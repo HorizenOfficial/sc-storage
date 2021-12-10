@@ -20,11 +20,13 @@ impl Reader for Transaction {}
 impl TransactionBasic for Transaction {}
 
 impl Transaction {
-    // TransactionInternal is always valid if it has been successfully created, thus the returned type is not a Result<Self, Error>
+    // Creates new instance of Transaction (which is a wrapper for TransactionInternal)
     pub fn new(transaction: TransactionInternal) -> Self {
         Transaction{ transaction }
     }
 
+    // Commits all Transaction's updates into the related Storage
+    // Returns Result with an error message if some error occurred
     pub fn commit(&self) -> Result<(), Error> {
         self.transaction.commit()
     }

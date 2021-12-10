@@ -8,19 +8,20 @@ use crate::storage_versioned::transaction_versioned::TransactionVersioned;
 use std::collections::HashMap;
 use fs_extra::dir::{copy, CopyOptions};
 use std::fs::rename;
-use std::mem::replace;
 use itertools::Itertools;
 
 pub mod transaction_versioned;
 
+// Delimiter between version number and version ID in a version (i.e. checkpoint) directory name
 const VERSION_DELIMITER: &str = "__";
-const VERSIONS_STORED: u32 = 10; // number of the latest versions to be stored
+// Number of the latest versions of storage to be stored
+const VERSIONS_STORED: usize = 10;
 
 pub struct StorageVersioned {
-    db: TransactionDB,
-    db_path: String,
-    versions_path: String,
-    base_path: String
+    db: TransactionDB,      // handle of an opened DB which contains current state of a storage
+    db_path: String,        // absolute path to the 'CurrentState' directory (which contains the DB with current state)
+    versions_path: String,  // absolute path to the 'Versions' directory (which contains storage's versions)
+    base_path: String       // absolute path to the storage (directory which contains the 'CurrentState' and 'Versions' subdirectories)
 }
 
 impl InternalRef for StorageVersioned {
@@ -37,15 +38,20 @@ impl ColumnFamiliesManager for StorageVersioned {}
 
 impl StorageVersioned {
 
+    // Directory for storing a current state of the storage (DB)
     const DB_DIR: &'static str = "/CurrentState";
+    // Directory for storing versions of the storage (Checkpoints)
     const VERSIONS_DIR: &'static str = "/Versions";
 
+    // Opens a storage located by a specified path or creates a new one if the directory by a specified path doesn't exist and 'create_if_missing' is true
+    // Returns Result with StorageVersioned instance or Err with a describing message if some error occurred
+    // NOTE: for storage to be created under 'create_if_missing = true' the specified (in path) storage's directory shouldn't exist at all
     pub fn open(path: &str, create_if_missing: bool) -> Result<Self, Error>{
         let db_path = path.to_owned() + Self::DB_DIR;
 
         // Preparing the CurrentState DB directory if it doesn't exist
-        let db_exists = Path::new(db_path.as_str()).exists();
-        if !db_exists {
+        let db_path_exists = Path::new(db_path.as_str()).exists();
+        if !db_path_exists {
             if !create_if_missing {
                 return Err(Error::new("No need to create a DB".into()));
             } else {
@@ -60,7 +66,7 @@ impl StorageVersioned {
 
         // Opening or creating the CurrentState DB
         let db =
-            if db_exists {
+            if db_path_exists {
                 TransactionDB::open_cf_all(&opts, &db_path)?
             } else {
                 TransactionDB::open_cf_default(&opts, &db_path)?
@@ -93,18 +99,8 @@ impl StorageVersioned {
         )
     }
 
-    fn absolute_path(path: &String) -> Result<String, Error> {
-        if let Ok(path_buf) = Path::new(path.as_str()).canonicalize(){
-            if let Some(path_str) = path_buf.to_str() {
-                Ok(String::from(path_str))
-            } else {
-                Err(Error::new("Can't convert the canonicalized path into string".into()))
-            }
-        } else {
-            Err(Error::new("Path can't be canonicalized".into()))
-        }
-    }
-
+    // Creates a transaction for a current state of storage if 'version_id_opt' is 'None', or for a specified previous version of the storage otherwise.
+    // Returns Result with TransactionVersioned or with Error message if some error occurred
     pub fn create_transaction(&self, version_id_opt: Option<&str>) -> Result<TransactionVersioned, Error> {
         if let Some(version_id) = version_id_opt {
             let db_version = self.open_version(version_id)?;
@@ -114,6 +110,9 @@ impl StorageVersioned {
         }
     }
 
+    // Rollbacks current state of the storage to a specified with 'version_id' previous version.
+    // All saved versions after the 'version_id' are deleted if rollback is successful.
+    // Returns Result with error message if some error occurs
     pub fn rollback(&mut self, version_id: &str) -> Result<(), Error> {
         let all_versions = self.get_all_versions()?;
 
@@ -123,16 +122,18 @@ impl StorageVersioned {
                     self.base_path.as_str(),
                     &CopyOptions::new()).is_ok() {
 
-                // Closing the DB in CurrentState directory
-                drop(replace(&mut self.db, TransactionDB::dummy_db()));
+                // Closing DB in the CurrentState directory
+                // NOTE: is equivalent to drop(replace(&mut self.db, TransactionDB::dummy_db()));
+                self.db = TransactionDB::dummy_db();
 
                 // Removing the CurrentState directory
                 clear_path(self.db_path.as_str())?;
 
-                // Renaming the copied directory with version into the 'CurrentState'
-                let version_copy_path = self.base_path.to_owned() + self.compose_version_dir_name(version_id, version_number).as_str();
+                // Renaming the copied version's directory to the 'CurrentState'
+                let version_copy_path =
+                    self.base_path.to_owned() + self.compose_version_dir_name(version_id, version_number).as_str();
                 if rename(version_copy_path, self.db_path.as_str()).is_ok(){
-                    // Opening the copied DB and putting its handle into self.db
+                    // Opening the copied DB and putting its handle into 'self.db'
                     self.db = TransactionDB::open_cf_all(&Options::default(), &self.db_path)?;
 
                     // Removing all versions which follow the restored version
@@ -143,16 +144,16 @@ impl StorageVersioned {
                             )?;
                         }
                     }
+                    Ok(())
                 } else {
-                    return Err(Error::new("Can't rename the copied version in the base directory".into()))
+                    Err(Error::new("Can't rename the copied version in the base directory".into()))
                 }
             } else {
-                return Err(Error::new("Can't copy the specified version into the base directory".into()))
+                Err(Error::new("Can't copy the specified version into the base directory".into()))
             }
         } else {
-            return Err(Error::new("Specified version doesn't exist".into()))
+            Err(Error::new("Specified version doesn't exist".into()))
         }
-        Ok(())
     }
 
     // Returns a sorted by creation order list of all existing versions IDs
@@ -175,13 +176,26 @@ impl StorageVersioned {
         )
     }
 
-    // Checks if all elements of the given set are consecutive after being sorted
-    fn is_consecutive_set(set: &Vec<&u32>) -> bool {
+    // Converts path into absolute format with Path::canonicalize method
+    fn absolute_path(path: &String) -> Result<String, Error> {
+        if let Ok(path_buf) = Path::new(path.as_str()).canonicalize(){
+            if let Some(path_str) = path_buf.to_str() {
+                Ok(String::from(path_str))
+            } else {
+                Err(Error::new("Can't convert the canonicalized path into string".into()))
+            }
+        } else {
+            Err(Error::new("Path can't be canonicalized".into()))
+        }
+    }
+
+    // Checks if all elements of a given set form a contiguous sequence when being sorted
+    fn is_contiguous_set(set: &Vec<usize>) -> bool {
         let mut set_sorted = set.clone();
         set_sorted.sort();
-        let mut prev_elem = 0u32;
+        let mut prev_elem = 0usize;
 
-        for (pos, &elem) in set_sorted.into_iter().enumerate() {
+        for (pos, elem) in set_sorted.into_iter().enumerate() {
             if pos != 0 &&
                elem != prev_elem + 1 {
                 return false;
@@ -191,21 +205,29 @@ impl StorageVersioned {
         true
     }
 
-    fn get_all_versions_in_dir(versions_path: &str) -> Result<HashMap<String, u32>, Error> {
+    // Retrieves a list of all subdirectories from the 'Version' directory,
+    // then creates a HashMap of (VersionID -> VersionNumber) from directories names,
+    // then checks that all VersionNumbers are contiguous
+    // Returns Result with full list of available storage versions as HashMap<VersionNumber, VersionID> or error message if some error occurred
+    fn get_all_versions_in_dir(versions_path: &str) -> Result<HashMap<String, usize>, Error> {
+        // Retrieving a list of all subdirectories from the 'Versions' directory
         let paths = std::fs::read_dir(versions_path).unwrap();
         let mut paths_count = 0;
 
-        let num_id_map: HashMap<String, u32> = paths.into_iter()
-            .flat_map(|path| { // counting the total number of subdirectories with versions
+        let id_to_num: HashMap<String, usize> = paths.into_iter()
+            .flat_map(|path|{    // counting the total number of subdirectories with versions
                 paths_count += 1;
                 path
             })
-            .flat_map(|path| path.file_name().into_string())
-            .flat_map(|num_id| {
+            .flat_map(|path|            // extracting versions' directories names from paths
+                path.file_name().into_string()
+            )
+            .flat_map(|num_id|{           // parsing directories names into (version_id, version_number)
                 let num_id_splitted = num_id.as_str().split(VERSION_DELIMITER).collect::<Vec<&str>>();
-                if num_id_splitted.len() != 2 {
+                if num_id_splitted.len() != 2 { // directory name should contain only two delimited parts
                     None
-                } else if let Ok(version_number) = num_id_splitted[0].to_owned().parse::<u32>(){
+                } else if let Ok(version_number) = num_id_splitted[0].to_owned().parse::<usize>(){ // parsing the first part as a number
+                    // the second part remains to be a string and is placed as a Key into the HashMap
                     Some((num_id_splitted[1].to_owned(), version_number)) // (version_id, version_number)
                 } else {
                     None
@@ -213,78 +235,79 @@ impl StorageVersioned {
             })
             .collect();
 
-        if num_id_map.len() == paths_count {
-            if Self::is_consecutive_set(&num_id_map.iter().map(|v|v.1).collect()) {
-                Ok(num_id_map)
+        // Checking that all directories has been successfully parsed
+        if id_to_num.len() == paths_count {
+            // Checking that all versions numbers are a contiguous sequence
+            if Self::is_contiguous_set(&id_to_num.iter().map(|v|*v.1).collect()) {
+                Ok(id_to_num)
             } else {
-                return Err(Error::new("Versions numbers are not consecutive".into()))
+                Err(Error::new("Versions' numbers are not contiguous".into()))
             }
         } else {
-            return Err(Error::new("Subdirectories of the Versions directory are inconsistent".into()))
+            Err(Error::new("Versions' directories names weren't parsed successfully".into()))
         }
     }
 
-    fn get_all_versions(&self) -> Result<HashMap<String, u32>, Error>{
+    // Wrapper over the 'get_all_versions_in_dir'
+    // Returns Result with a full list of available versions for a current instance of storage
+    fn get_all_versions(&self) -> Result<HashMap<String, usize>, Error>{
         Self::get_all_versions_in_dir(self.versions_path.as_str())
     }
 
-    fn max_version_number(all_versions_numbers: &[u32]) -> Result<Option<u32>, Error> {
-        if all_versions_numbers.is_empty(){
-            Ok(None)
-        } else if let Some(&max_version_number) = all_versions_numbers.iter().max() {
-            Ok(Some(max_version_number))
-        } else {
-            Err(Error::new("Couldn't get maximum version number".into()))
-        }
-    }
-
-    fn next_version_number(all_versions_numbers: &[u32]) -> Result<u32, Error> {
-        if let Some(max_version_number) = Self::max_version_number(all_versions_numbers)? {
+    // Returns the next number for a given list of versions' numbers or 0 if the list is empty
+    fn next_version_number(all_versions_numbers: &[usize]) -> Result<usize, Error> {
+        if let Some(&max_version_number) = all_versions_numbers.iter().max() {
             Ok(max_version_number + 1)
-        } else {
+        } else { // there are no versions (numbers) so start with 0 the numbering
             Ok(0)
         }
     }
 
-    fn compose_version_dir_name(&self, version_id: &str, version_number: u32) -> String {
+    // Composes directory name for a specified version ID and its number as '/versionNumber__versionID'
+    fn compose_version_dir_name(&self, version_id: &str, version_number: usize) -> String {
         String::from("/") + version_number.to_string().as_str() + VERSION_DELIMITER + version_id
     }
 
-    fn compose_version_path(&self, version_id: &str, version_number: u32) -> String {
+    // Composes absolute path for a specified version
+    fn compose_version_path(&self, version_id: &str, version_number: usize) -> String {
         self.versions_path.to_owned() + self.compose_version_dir_name(version_id, version_number).as_str()
     }
 
-    // Removes the oldest versions (by version number) to make the total number of existing versions the same as VERSIONS_STORED
+    // Removes the oldest versions (by version number) to make the total number of existing versions the same as 'VERSIONS_STORED'
     fn trim_versions(&self) -> Result<(), Error> {
         let all_versions = self.get_all_versions()?;
 
-        if all_versions.len() > VERSIONS_STORED as usize {
-            let max_version_number = Self::max_version_number(
-                all_versions.iter()
-                    .map(|vn|*vn.1).collect::<Vec<u32>>().as_slice()
-            )?.ok_or(Error::new("Missing the maximal version number".into()))?;
+        if all_versions.len() > VERSIONS_STORED {
+            if let Some(max_version_number) = all_versions.iter().map(|vn|*vn.1).max(){
+                assert!(max_version_number >= VERSIONS_STORED);
 
-            assert!(max_version_number >= VERSIONS_STORED);
-
-            let min_version_number = max_version_number - VERSIONS_STORED + 1;
-            for (id, &num) in &all_versions {
-                if num < min_version_number {
-                    clear_path(
-                        self.compose_version_path(id, num).as_str()
-                    )?;
+                let min_version_number = max_version_number - VERSIONS_STORED + 1;
+                for (id, &num) in &all_versions {
+                    if num < min_version_number {
+                        clear_path(
+                            self.compose_version_path(id, num).as_str()
+                        )?;
+                    }
                 }
+            } else {
+                return Err(Error::new("Can't get the maximum version number".into()))
             }
         }
         Ok(())
     }
 
+    // Creates a new storage's version (checkpoint of the CurrentState) in the 'Versions' directory.
+    // The name of version's directory is composed of a specified 'version_id' and the version's number
+    // which is the next after the most recent previous version's number.
+    // Removes the versions which are older than the most recent 'VERSIONS_STORED' versions.
+    // Returns Result with error message if a version with specified ID already exists or some other error occurred
     fn create_version(&self, version_id: &str) -> Result<(), Error> {
         let all_versions = self.get_all_versions()?;
 
-        // Checking if the specified version_id already exists among all saved versions
+        // Checking if the specified 'version_id' already exists among all saved versions
         if all_versions.get(version_id).is_none() {
             let all_versions_numbers = all_versions.iter()
-                .map(|vn|*vn.1).collect::<Vec<u32>>();
+                .map(|vn|*vn.1).collect::<Vec<usize>>();
             let next_version_number = Self::next_version_number(
                 all_versions_numbers.as_slice()
             )?;
@@ -292,17 +315,17 @@ impl StorageVersioned {
             let version_path_str = self.compose_version_path(version_id, next_version_number);
             let version_path = Path::new(&version_path_str);
 
-            if !version_path.exists(){
-                self.db.create_checkpoint_object()?.create_checkpoint(version_path)?;
-                self.trim_versions()
-            } else {
-                Err(Error::new("Checkpoint already exists".into()))
-            }
+            // Creating checkpoint in a directory by 'version_path'
+            self.db.create_checkpoint_object()?.create_checkpoint(version_path)?;
+            // Removing the checkpoints which are not in a sliding window of 'VERSIONS_STORED' size
+            self.trim_versions()
         } else {
             Err(Error::new("Specified version already exists".into()))
         }
     }
 
+    // Opens a specified by 'version_id' version (checkpoint) of a storage and returns it's TransactionDB handle.
+    // If the specified version doesn't exist or can't be opened then returns an Error with corresponding message
     fn open_version(&self, version_id: &str) -> Result<TransactionDB, Error> {
         if let Some(version_number) = self.get_all_versions()?.get(version_id){
             let version_path_str = self.compose_version_path(version_id, *version_number);
@@ -322,41 +345,36 @@ impl StorageVersioned {
 #[cfg(test)]
 mod test {
     use crate::storage_versioned::{StorageVersioned, VERSIONS_STORED};
-    use crate::common::{Reader, clear_path};
+    use crate::common::{Reader, clear_path, test_dir};
     use crate::common::transaction::TransactionBasic;
     use crate::common::storage::ColumnFamiliesManager;
     use rand::Rng;
     use itertools::Itertools;
 
-    // TODO: Change to /tmp/ to make tests run in other environments
-    fn test_dir(subdir: &str) -> String {
-        String::from("/mnt/ramfs_dir/") + subdir
-    }
-
-    fn gen_versions_ids(versions_num: u32) -> Vec<String> {
+    fn gen_versions_ids(versions_num: usize) -> Vec<String> {
         let mut rng = rand::thread_rng();
         (0.. versions_num).into_iter()
             .map(|_|rng.gen::<u128>().to_string()).collect()
     }
 
     #[test]
-    fn storage_is_consecutive_set_tests(){
-        assert!(StorageVersioned::is_consecutive_set(&vec![]));
-        assert!(StorageVersioned::is_consecutive_set(&vec![&0]));
-        assert!(StorageVersioned::is_consecutive_set(&vec![&1]));
-        assert!(StorageVersioned::is_consecutive_set(&vec![&0, &1]));
-        assert!(StorageVersioned::is_consecutive_set(&vec![&5, &6, &7]));
-        assert!(StorageVersioned::is_consecutive_set(&vec![&0, &1, &2, &3, &4, &5]));
-        assert!(StorageVersioned::is_consecutive_set(&vec![&5, &4, &3, &2, &1, &0]));
-        assert!(StorageVersioned::is_consecutive_set(&vec![&4, &2, &1, &0, &5, &3]));
+    fn storage_versioned_is_contiguous_set_tests(){
+        assert!(StorageVersioned::is_contiguous_set(&vec![]));
+        assert!(StorageVersioned::is_contiguous_set(&vec![0]));
+        assert!(StorageVersioned::is_contiguous_set(&vec![1]));
+        assert!(StorageVersioned::is_contiguous_set(&vec![0, 1]));
+        assert!(StorageVersioned::is_contiguous_set(&vec![5, 6, 7]));
+        assert!(StorageVersioned::is_contiguous_set(&vec![0, 1, 2, 3, 4, 5]));
+        assert!(StorageVersioned::is_contiguous_set(&vec![5, 4, 3, 2, 1, 0]));
+        assert!(StorageVersioned::is_contiguous_set(&vec![4, 2, 1, 0, 5, 3]));
 
-        assert!(!StorageVersioned::is_consecutive_set(&vec![&0, &0]));
-        assert!(!StorageVersioned::is_consecutive_set(&vec![&1, &1]));
-        assert!(!StorageVersioned::is_consecutive_set(&vec![&0, &1, &2, &0]));
-        assert!(!StorageVersioned::is_consecutive_set(&vec![&5, &4, &3, &2, &0]));
-        assert!(!StorageVersioned::is_consecutive_set(&vec![&0, &2, &3, &4, &5]));
-        assert!(!StorageVersioned::is_consecutive_set(&vec![&0, &1, &2, &3, &5]));
-        assert!(!StorageVersioned::is_consecutive_set(&vec![&4, &2, &0, &5, &3]));
+        assert!(!StorageVersioned::is_contiguous_set(&vec![0, 0]));
+        assert!(!StorageVersioned::is_contiguous_set(&vec![1, 1]));
+        assert!(!StorageVersioned::is_contiguous_set(&vec![0, 1, 2, 0]));
+        assert!(!StorageVersioned::is_contiguous_set(&vec![5, 4, 3, 2, 0]));
+        assert!(!StorageVersioned::is_contiguous_set(&vec![0, 2, 3, 4, 5]));
+        assert!(!StorageVersioned::is_contiguous_set(&vec![0, 1, 2, 3, 5]));
+        assert!(!StorageVersioned::is_contiguous_set(&vec![4, 2, 0, 5, 3]));
     }
 
     #[test]
@@ -380,7 +398,7 @@ mod test {
             }
         );
 
-        let min_index_of_existing_version = versions_ids.len() - VERSIONS_STORED as usize;
+        let min_index_of_existing_version = versions_ids.len() - VERSIONS_STORED;
 
         versions_ids.iter().enumerate().for_each(
             |(i, version_id)| {
@@ -418,16 +436,16 @@ mod test {
                 assert!(tx.update(&vec![(&kv.0.as_slice(), &kv.1.as_slice())], &vec![]).is_ok());
                 assert!(tx.commit(version_id.as_str()).is_ok());
 
-                if i < VERSIONS_STORED as usize {
+                if i < VERSIONS_STORED {
                     assert_eq!(storage.rollback_versions().unwrap(), versions_ids[0 ..= i]);
                 } else {
-                    assert_eq!(storage.rollback_versions().unwrap(), versions_ids[(i - VERSIONS_STORED as usize + 1) ..= i]);
+                    assert_eq!(storage.rollback_versions().unwrap(), versions_ids[(i - VERSIONS_STORED + 1) ..= i]);
                 }
                 assert_eq!(storage.last_version().unwrap().unwrap(), version_id.to_owned());
             }
         );
 
-        let min_index_of_existing_version = versions_ids.len() - VERSIONS_STORED as usize;
+        let min_index_of_existing_version = versions_ids.len() - VERSIONS_STORED;
 
         // Rollback to non-existing version
         assert!(storage.rollback(versions_ids[min_index_of_existing_version - 1].as_str()).is_err());
@@ -438,7 +456,7 @@ mod test {
         drop(storage);
 
         // Rollbacks to the previous versions
-        for i in 1.. VERSIONS_STORED as usize {
+        for i in 1.. VERSIONS_STORED {
             // Reopening the storage to imitate different sessions between rollbacks (storage in this scope is dropped in the end of each iteration)
             let mut storage = StorageVersioned::open(storage_path.as_str(), true).unwrap();
 
@@ -466,7 +484,7 @@ mod test {
         // All KV-pairs for the version to which storage was rolled back + last_kv
         // (last_kv has the biggest value of Key so it is a last element in a sorted array)
         assert_eq!(storage_content.into_iter().sorted().collect::<Vec<_>>(),
-                   [&versions_content[..= versions_content.len() - 1 - (VERSIONS_STORED as usize - 1)], &[last_kv]].concat())
+                   [&versions_content[..= versions_content.len() - 1 - (VERSIONS_STORED - 1)], &[last_kv]].concat())
     }
 
     #[test]
@@ -477,7 +495,7 @@ mod test {
         let storage = StorageVersioned::open(storage_path.as_str(), true).unwrap();
 
         let mut rng = rand::thread_rng();
-        let versions_ids: Vec<String> = (0u32.. VERSIONS_STORED).into_iter()
+        let versions_ids: Vec<String> = (0.. VERSIONS_STORED).into_iter()
             .map(|_|rng.gen::<u128>().to_string()).collect();
 
         versions_ids.iter().for_each(

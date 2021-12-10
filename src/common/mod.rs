@@ -9,6 +9,10 @@ pub mod transaction;
 
 pub trait InternalRef {
 
+    // Methods for accessing actual data storage (DB or transaction)
+    // These methods are used by the InternalReader trait
+    // The trait should be implemented by Storage/StorageVersioned and Transaction/TransactionVersioned to have the same Reader trait
+
     fn db_ref(&self) -> Option<&TransactionDB>;
     fn db_ref_mut(&mut self) -> Option<&mut TransactionDB>;
 
@@ -18,8 +22,8 @@ pub trait InternalRef {
 
 pub trait InternalReader: InternalRef {
 
-    // wrapper over internal 'get', 'get_cf', 'iterator', 'iterator_cf' of Database (or TransactionInternal for TransactionInternalReader)
-    // should be implemented by Storage and Transaction to have the same StorageReader functionality
+    // Wrappers for internal 'get', 'get_cf', 'iterator', 'iterator_cf' methods of TransactionDB and TransactionInternal
+    // These wrappers are used by Reader trait to abstract from concrete object (TransactionDB or TransactionInternal)
 
     fn get_internal(&self, key: &[u8]) -> Option<DBVector> {
         if let Some(db) = self.db_ref() {
@@ -61,19 +65,29 @@ pub trait InternalReader: InternalRef {
 
 pub trait Reader: InternalReader {
 
+    // Common trait for accessing data of Storage/StorageVersioned or Transaction/TransactionVersioned
+
+    // Retrieves value for a specified key in the 'default' column family from an underlying storage or returns None in case the key is absent
     fn get(&self, key: &[u8]) -> Option<Vec<u8>>{
         Some(self.get_internal(key)?.to_vec())
     }
+
+    // Retrieves value for a specified key in a specified column column family from an underlying storage or returns None in case the key is absent
     fn get_cf(&self, cf: &ColumnFamily, key: &[u8]) -> Option<Vec<u8>>{
         Some(self.get_cf_internal(cf, key)?.to_vec())
     }
 
+    // Gets KV pairs for a specified list of keys in the 'default' column family from an underlying storage;
+    // For the absent keys the Values in corresponding KV pairs are None.
     fn multi_get(&self, keys: &[&[u8]]) -> HashMap<Vec<u8>, Option<Vec<u8>>> {
         keys.iter()
             .unique()
             .map(|&key| (key.to_vec(), self.get(key)))
             .collect()
     }
+
+    // Gets KV pairs for a specified list of keys in a specified column family from an underlying storage;
+    // For the absent keys the Values in corresponding KV pairs are None.
     fn multi_get_cf(&self, cf: &ColumnFamily, keys: &[&[u8]]) -> HashMap<Vec<u8>, Option<Vec<u8>>> {
         keys.iter()
             .unique()
@@ -81,12 +95,15 @@ pub trait Reader: InternalReader {
             .collect()
     }
 
+    // Iterates over all contained keys in the 'default' column family in an underlying storage and returns a list of all contained KV pairs
     fn get_all(&self) -> HashMap<Vec<u8>, Vec<u8>> {
         self.iterator_internal(IteratorMode::Start)
             .map(|kv| (kv.0.to_vec(), kv.1.to_vec()))
             .collect()
     }
-    // Result is returned due to a specified CF can be absent, so the error should be returned
+
+    // Iterates over all contained keys in a specified column family in an underlying storage and returns a list of all contained KV pairs
+    // NOTE: Result is returned due to a specified CF can be absent so an error should be returned in this case
     fn get_all_cf(&self, cf: &ColumnFamily) -> Result<HashMap<Vec<u8>, Vec<u8>>, Error> {
         Ok(
             self.iterator_cf_internal(cf,IteratorMode::Start)?
@@ -95,14 +112,19 @@ pub trait Reader: InternalReader {
         )
     }
 
+    // Checks whether an underlying storage contains any KV-pairs in the 'default' column family
     fn is_empty(&self) -> bool {
         self.iterator_internal(IteratorMode::Start).next().is_none()
     }
+
+    // Checks whether an underlying storage contains any KV-pairs in a specified column family
     fn is_empty_cf(&self, cf: &ColumnFamily) -> Result<bool, Error> {
         Ok(self.iterator_cf_internal(cf,IteratorMode::Start)?.next().is_none())
     }
 }
 
+// Removes the specified directory by deleting it together with all nested subdirectories
+// Returns Ok Result if directory removed successfully or didn't exist or Err with a message if some error occurred
 pub fn clear_path(path: &str) -> Result<(), Error> {
     let path_sting = path.to_owned();
     if std::path::Path::new(path_sting.as_str()).exists(){
@@ -111,4 +133,10 @@ pub fn clear_path(path: &str) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+// Base directory for tests data storing
+pub fn test_dir(subdir: &str) -> String {
+    String::from("/tmp/") + subdir
 }

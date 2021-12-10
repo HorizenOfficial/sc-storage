@@ -9,8 +9,7 @@ use crate::TransactionInternal;
 pub mod transaction;
 
 pub struct Storage{
-    db: TransactionDB,
-    path: String,
+    db: TransactionDB
 }
 
 impl InternalRef for Storage {
@@ -27,8 +26,10 @@ impl ColumnFamiliesManager for Storage {}
 
 impl Storage {
 
+    // Opens a storage located by a specified path or creates a new one if the directory by a specified path doesn't exist and 'create_if_missing' is true
+    // Returns Result with Storage instance or Err with a describing message if some error occurred
+    // NOTE: for storage to be created under 'create_if_missing = true' the specified (in path) storage's directory shouldn't exist at all
     pub fn open(path: &str, create_if_missing: bool) -> Result<Self, Error> {
-
         let path_string = path.to_owned();
 
         let db_exists = Path::new(path_string.as_str()).exists();
@@ -45,12 +46,13 @@ impl Storage {
                     TransactionDB::open_cf_all(&opts, path)?
                 } else {
                     TransactionDB::open_cf_default(&opts, path)?
-                },
-                path: path_string
+                }
             }
         )
     }
 
+    // Creates and returns a Transaction
+    // Returns Err with describing message if some error occurred
     pub fn create_transaction(&self) -> Result<Transaction, Error> {
         Ok(Transaction::new(self.db.transaction_default()?))
     }
@@ -62,19 +64,19 @@ mod test {
     use crate::storage::Storage;
     use crate::common::transaction::TransactionBasic;
     use crate::common::storage::ColumnFamiliesManager;
-    use crate::common::{Reader, clear_path};
+    use crate::common::{Reader, clear_path, test_dir};
 
     #[test]
     fn storage_tests(){
-        const STORAGE_PATH: &str = "/mnt/ramfs_dir/storage_test";
-        clear_path(STORAGE_PATH).unwrap();
+        let storage_path = test_dir("storage_test");
+        clear_path(storage_path.as_str()).unwrap();
 
-        assert!(Storage::open(STORAGE_PATH, false).is_err());
+        assert!(Storage::open(storage_path.as_str(), false).is_err());
 
         // just creating a storage, then reopening it with the further 'Storage::open' call
-        drop(Storage::open(STORAGE_PATH, true).unwrap());
+        drop(Storage::open(storage_path.as_str(), true).unwrap());
 
-        let storage = Storage::open(STORAGE_PATH, false).unwrap();
+        let storage = Storage::open(storage_path.as_str(), false).unwrap();
         let tx = storage.create_transaction().unwrap();
 
         assert!(tx.is_empty());
@@ -139,10 +141,10 @@ mod test {
 
     #[test]
     fn storage_cf_tests(){
-        const STORAGE_PATH: &str = "/mnt/ramfs_dir/storage_cf_test";
-        clear_path(STORAGE_PATH).unwrap();
+        let storage_path = test_dir("storage_cf_test");
+        clear_path(storage_path.as_str()).unwrap();
 
-        let mut storage_ = Storage::open(STORAGE_PATH, true).unwrap();
+        let mut storage_ = Storage::open(storage_path.as_str(), true).unwrap();
 
         assert!(storage_.get_column_family("default").is_some());
         assert!(storage_.set_column_family("cf1").is_ok());
@@ -150,7 +152,7 @@ mod test {
 
         drop(storage_); // closing the 'storage_'
 
-        let storage = Storage::open(STORAGE_PATH, false).unwrap();
+        let storage = Storage::open(storage_path.as_str(), false).unwrap();
 
         assert!(storage.get_column_family("default").is_some());
         let cf1 = storage.get_column_family("cf1").unwrap();
@@ -258,10 +260,10 @@ mod test {
 
     #[test]
     fn storage_transaction_basic_tests(){
-        const STORAGE_PATH: &str = "/mnt/ramfs_dir/storage_transaction_basic_test";
-        clear_path(STORAGE_PATH).unwrap();
+        let storage_path = test_dir("storage_transaction_basic_test");
+        clear_path(storage_path.as_str()).unwrap();
 
-        let mut storage = Storage::open(STORAGE_PATH, true).unwrap();
+        let mut storage = Storage::open(storage_path.as_str(), true).unwrap();
 
         assert!(storage.set_column_family("cf1").is_ok());
         assert!(storage.set_column_family("cf2").is_ok());
