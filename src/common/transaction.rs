@@ -1,8 +1,8 @@
 use rocksdb::{ColumnFamily, Error};
 use rocksdb::transactions::ops::{PutCF, DeleteCF, Put, Delete};
-use crate::common::{Reader, InternalRef};
+use crate::common::Reader;
 
-pub trait TransactionBasic: Reader + InternalRef {
+pub trait TransactionBasic: Reader {
 
     const NO_REF: &'static str = "No reference for transaction";
     const NO_REF_MUT: &'static str = "No mutable reference for transaction";

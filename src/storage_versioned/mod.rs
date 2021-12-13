@@ -386,20 +386,20 @@ mod test {
 
         let versions_ids = gen_versions_ids(VERSIONS_STORED * 2);
 
+        // Creating versions
         versions_ids.iter().for_each(
             |version_id|{
-                // Creating versions
+                // Creating and committing transaction for a current state of storage
                 assert!(
-                    storage.create_transaction(None) // creating transaction for a current state of Storage
-                        .unwrap()
-                        .commit(version_id.as_str())
-                        .is_ok()
+                    storage.create_transaction(None).unwrap()
+                        .commit(version_id.as_str()).is_ok()
                 );
             }
         );
 
         let min_index_of_existing_version = versions_ids.len() - VERSIONS_STORED;
 
+        // Checking versions for existence
         versions_ids.iter().enumerate().for_each(
             |(i, version_id)| {
                 if i < min_index_of_existing_version {
@@ -498,35 +498,50 @@ mod test {
         let versions_ids: Vec<String> = (0.. VERSIONS_STORED).into_iter()
             .map(|_|rng.gen::<u128>().to_string()).collect();
 
+        // Creating versions of the storage
         versions_ids.iter().for_each(
             |version_id|{
                 // Trying to create transaction for a not yet existing version
                 assert!(storage.create_transaction(Some(version_id)).is_err());
 
-                // Trying to save current state into the same version in contexts of different transactions
+                // Creating versions with new (version_id, version_id) KV-pair contained for each version
+                let tx = storage.create_transaction(
+                    None // creating transaction for a current state of Storage
+                ).unwrap();
+
+                let version_id_bytes = version_id.bytes().collect::<Vec<u8>>();
+                assert!(tx.update(&vec![(&version_id_bytes.as_slice(), &version_id_bytes.as_slice())], &vec![]).is_ok());
+                assert!(tx.commit(version_id.as_str()).is_ok()); // committing updates and creating new version
+
+                // Trying to save the current state into an existing version
                 assert!(
-                    storage.create_transaction(None) // creating transaction for a current state of Storage
-                        .unwrap()
-                        .commit(version_id.as_str())
-                        .is_ok()
+                    storage.create_transaction(None).unwrap()
+                        .commit(version_id.as_str()).is_err() // can't commit more than once with the same version_id
                 );
-                assert!(
-                    storage.create_transaction(None)
-                        .unwrap()
-                        .commit(version_id.as_str())
-                        .is_err() // can't commit more than once to the same version
-                )
             }
         );
 
+        // Opening the created versions
         versions_ids.iter().for_each(
-            |version_id| {
-                assert!(
-                    storage.create_transaction(Some(version_id)) // creating transaction for a previous state (version) of Storage
-                        .unwrap()
-                        .commit("some_version_id")
-                        .is_err() // transaction created for previous version can't be committed
-                )
+            |version_id|{
+
+                let tx = storage.create_transaction(
+                    Some(version_id) // creating transaction for a previous state (version) of a storage
+                ).unwrap();
+
+                // Explicitly accessing the default CF in transaction
+                let default_cf = tx.get_column_family("default").unwrap().unwrap();
+                let version_id_bytes = version_id.bytes().collect::<Vec<u8>>();
+                assert_eq!(tx.get_cf(default_cf, version_id_bytes.as_slice()).unwrap(), version_id_bytes);
+
+                // Transaction for a storage version can be updated
+                assert!(tx.update_cf(default_cf,
+                                     &vec![("key".as_ref(), "val".as_ref())],
+                                     &vec![version_id_bytes.as_slice()]).is_ok()
+                );
+
+                // Transaction for a storage version can't be committed
+                assert!(tx.commit("some_version_id").is_err());
             }
         );
     }
@@ -542,12 +557,10 @@ mod test {
         drop(StorageVersioned::open(storage_path.as_str(), true).unwrap());
 
         let storage = StorageVersioned::open(storage_path.as_str(), false).unwrap();
-
         let tx = storage.create_transaction(None).unwrap();
-
         assert!(tx.is_empty());
 
-        // initializing the transaction with k1, k2, k4, k5 key-values
+        // Initializing the transaction with k1, k2, k4, k5 key-values
         tx.update(&vec![
             ("k1".as_ref(), "v1".as_ref()),
             ("k2".as_ref(), "v2".as_ref()),
@@ -654,7 +667,7 @@ mod test {
         tx.commit("version_id1").unwrap();
         assert!(!storage.is_empty_cf(cf1).unwrap() && !storage.is_empty_cf(cf2).unwrap());
 
-        drop(tx); // closing the 'trans'
+        drop(tx); // closing the 'tx'
 
         let tx2 = storage.create_transaction(None).unwrap();
 

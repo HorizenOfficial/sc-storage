@@ -43,12 +43,12 @@ impl<'a> TransactionVersioned<'a> {
     // TransactionVersioned started for a previous version of a StorageVersioned can't be committed due to all saved storage versions should remain unchanged
     // Returns Result with an error message if some error occurred
     pub fn commit(&self, version_id: &str) -> Result<(), Error> {
-        if self.db_opt.is_none(){ // commit only if the transaction is for the CurrentState
+        if self.db_opt.is_none(){ // commit only if a transaction is created for the CurrentState
             if let Some(storage) = self.storage_opt {
                 self.transaction.commit()?;
                 storage.create_version(version_id)
             } else {
-                Err(Error::new("Storage reference is missing".into()))
+                Err(Error::new("StorageVersioned reference is missing".into()))
             }
         } else {
             Err(Error::new("Transaction for a previous version of a StorageVersioned can't be committed".into()))
