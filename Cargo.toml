@@ -10,7 +10,7 @@ rocksdb = {version = "0.17.0", git = "https://github.com/HorizenOfficial/rust-ro
 rand = { version = "0.7" }
 itertools = { version = "0.9.0" }
 fs_extra  = { version = "0.2.0" }
-
+tempdir = { version = "0.3.7" }
 
 [profile.release]
 opt-level = 3
@@ -23,7 +23,7 @@ opt-level = 0
 panic = "unwind"
 
 [profile.test]
-opt-level = 3
+opt-level = 0
 lto = "thin"
 incremental = true
 debug-assertions = true

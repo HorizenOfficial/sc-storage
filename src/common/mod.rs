@@ -3,6 +3,7 @@ use itertools::Itertools;
 use crate::TransactionInternal;
 use rocksdb::transactions::ops::{Get, GetCF, Iterate, IterateCF};
 use std::collections::HashMap;
+use std::path::Path;
 
 pub mod storage;
 pub mod transaction;
@@ -95,48 +96,80 @@ pub trait Reader: InternalReader {
             .collect()
     }
 
-    // Iterates over all contained keys in the 'default' column family in an underlying storage and returns a list of all contained KV pairs
-    fn get_all(&self) -> HashMap<Vec<u8>, Vec<u8>> {
+    // Returns iterator for all contained keys in the 'default' column family in an underlying storage
+    fn get_iter(&self) -> DBIterator{
         self.iterator_internal(IteratorMode::Start)
-            .map(|kv| (kv.0.to_vec(), kv.1.to_vec()))
-            .collect()
     }
 
-    // Iterates over all contained keys in a specified column family in an underlying storage and returns a list of all contained KV pairs
+    // Returns iterator for all contained keys in a specified column family in an underlying storage
     // NOTE: Result is returned due to a specified CF can be absent so an error should be returned in this case
-    fn get_all_cf(&self, cf: &ColumnFamily) -> Result<HashMap<Vec<u8>, Vec<u8>>, Error> {
-        Ok(
-            self.iterator_cf_internal(cf,IteratorMode::Start)?
-                .map(|kv| (kv.0.to_vec(), kv.1.to_vec()))
-                .collect()
-        )
+    fn get_iter_cf(&self, cf: &ColumnFamily) -> Result<DBIterator, Error>{
+        self.iterator_cf_internal(cf, IteratorMode::Start)
     }
 
     // Checks whether an underlying storage contains any KV-pairs in the 'default' column family
     fn is_empty(&self) -> bool {
-        self.iterator_internal(IteratorMode::Start).next().is_none()
+        self.get_iter().next().is_none()
     }
 
     // Checks whether an underlying storage contains any KV-pairs in a specified column family
     fn is_empty_cf(&self, cf: &ColumnFamily) -> Result<bool, Error> {
-        Ok(self.iterator_cf_internal(cf,IteratorMode::Start)?.next().is_none())
+        Ok(self.get_iter_cf(cf)?.next().is_none())
     }
 }
 
 // Removes the specified directory by deleting it together with all nested subdirectories
 // Returns Ok Result if directory removed successfully or didn't exist or Err with a message if some error occurred
 pub fn clear_path(path: &str) -> Result<(), Error> {
-    let path_sting = path.to_owned();
-    if std::path::Path::new(path_sting.as_str()).exists(){
+    let path_string = path.to_owned();
+    if std::path::Path::new(path_string.as_str()).exists(){
         if std::fs::remove_dir_all(path).is_err() {
-            return Err(Error::new(path_sting + " can't be removed".into()));
+            return Err(Error::new(path_string + " can't be removed".into()));
         }
     }
     Ok(())
 }
 
+// Joins two paths (or a path and a file/directory name) concatenating them with OS-specific delimiter (such as '/' or '\')
+pub fn join_path_strings(path1: &str, path2: &str) -> Result<String, Error> {
+    if let Ok(path) = Path::new(path1).join(path2)
+        .into_os_string().into_string(){
+        Ok(path)
+    } else {
+        return Err(Error::new("Can't get a String for joined path".into()))
+    }
+}
+
 #[cfg(test)]
 // Base directory for tests data storing
-pub fn test_dir(subdir: &str) -> String {
-    String::from("/tmp/") + subdir
+// TempDir should be returned to a caller to provide automatic directory removal after the end of a caller's scope
+pub fn test_dir(dir_prefix: &str) -> Result<(tempdir::TempDir, String), Error> {
+    if let Ok(tmp_dir) = tempdir::TempDir::new(dir_prefix){
+        if let Ok(path_string) = tmp_dir.path().to_path_buf().into_os_string().into_string(){
+            Ok((tmp_dir, path_string))
+        } else {
+            Err(Error::new("Can't get a String for a temporary directory path".into()))
+        }
+    } else {
+        Err(Error::new("Can't create a temporary directory".into()))
+    }
+}
+
+#[cfg(test)]
+// Iterates over all contained keys in the 'default' column family in an underlying storage and returns a list of all contained KV pairs
+pub fn get_all(reader: &dyn Reader) -> HashMap<Vec<u8>, Vec<u8>> {
+    reader.get_iter()
+        .map(|kv| (kv.0.to_vec(), kv.1.to_vec()))
+        .collect()
+}
+
+#[cfg(test)]
+// Iterates over all contained keys in a specified column family in an underlying storage and returns a list of all contained KV pairs
+// NOTE: Result is returned due to a specified CF can be absent so an error should be returned in this case
+pub fn get_all_cf(reader: &dyn Reader, cf: &ColumnFamily) -> Result<HashMap<Vec<u8>, Vec<u8>>, Error> {
+    Ok(
+        reader.get_iter_cf(cf)?
+            .map(|kv| (kv.0.to_vec(), kv.1.to_vec()))
+            .collect()
+    )
 }

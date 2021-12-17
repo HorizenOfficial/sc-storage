@@ -3,7 +3,7 @@ use crate::common::storage::ColumnFamiliesManager;
 use crate::storage::transaction::Transaction;
 use rocksdb::transactions::ops::{TransactionBegin, OpenCF};
 use std::path::Path;
-use crate::common::{InternalReader, Reader, InternalRef};
+use crate::common::{InternalReader, Reader, InternalRef, join_path_strings};
 use crate::TransactionInternal;
 
 pub mod transaction;
@@ -25,16 +25,24 @@ impl Reader for Storage {}
 impl ColumnFamiliesManager for Storage {}
 
 impl Storage {
+    // Directory for storing a current state of a storage (DB)
+    const DB_DIR: &'static str = "CurrentState";
 
     // Opens a storage located by a specified path or creates a new one if the directory by a specified path doesn't exist and 'create_if_missing' is true
     // Returns Result with Storage instance or Err with a describing message if some error occurred
-    // NOTE: for storage to be created under 'create_if_missing = true' the specified (in path) storage's directory shouldn't exist at all
     pub fn open(path: &str, create_if_missing: bool) -> Result<Self, Error> {
-        let path_string = path.to_owned();
+        // The nested subdirectory 'DB_DIR' is needed for ability to detect if storage is not existing even if a specified by the 'path' directory exists
+        let db_path = join_path_strings(path.to_owned().as_str(), Self::DB_DIR)?;
 
-        let db_exists = Path::new(path_string.as_str()).exists();
-        if !db_exists && !create_if_missing {
-            return Err(Error::new("No need to create a DB".into()));
+        let db_path_exists = Path::new(db_path.as_str()).exists();
+        if !db_path_exists{
+            if !create_if_missing {
+                return Err(Error::new("No need to create a DB".into()));
+            } else {
+                if std::fs::create_dir_all(&db_path).is_err(){
+                    return Err(Error::new("DB directory can't be created".into()))
+                }
+            }
         }
 
         let mut opts = Options::default();
@@ -42,10 +50,10 @@ impl Storage {
 
         Ok(
             Storage{
-                db: if db_exists {
-                    TransactionDB::open_cf_all(&opts, path)?
+                db: if db_path_exists {
+                    TransactionDB::open_cf_all(&opts, db_path)?
                 } else {
-                    TransactionDB::open_cf_default(&opts, path)?
+                    TransactionDB::open_cf_default(&opts, db_path)?
                 }
             }
         )
@@ -64,12 +72,11 @@ mod test {
     use crate::storage::Storage;
     use crate::common::transaction::TransactionBasic;
     use crate::common::storage::ColumnFamiliesManager;
-    use crate::common::{Reader, clear_path, test_dir};
+    use crate::common::{Reader, test_dir, get_all_cf, get_all};
 
     #[test]
     fn storage_tests(){
-        let storage_path = test_dir("storage_test");
-        clear_path(storage_path.as_str()).unwrap();
+        let (_tmp_dir, storage_path) = test_dir("storage_tests").unwrap();
 
         assert!(Storage::open(storage_path.as_str(), false).is_err());
 
@@ -125,7 +132,7 @@ mod test {
             assert!(values[&b"k4".to_vec()].is_none());
             assert!(values[&b"k5".to_vec()].is_none());
 
-            let all_values = reader.get_all();
+            let all_values = get_all(reader);
             assert_eq!(all_values.len(), 3);
             assert_eq!(all_values[&b"k1".to_vec()], b"v1".to_vec());
             assert_eq!(all_values[&b"k2".to_vec()], b"v2".to_vec());
@@ -141,8 +148,7 @@ mod test {
 
     #[test]
     fn storage_cf_tests(){
-        let storage_path = test_dir("storage_cf_test");
-        clear_path(storage_path.as_str()).unwrap();
+        let (_tmp_dir, storage_path) = test_dir("storage_cf_tests").unwrap();
 
         let mut storage_ = Storage::open(storage_path.as_str(), true).unwrap();
 
@@ -238,13 +244,13 @@ mod test {
             assert!(values_cf2[&b"k24".to_vec()].is_none());
             assert!(values_cf2[&b"k25".to_vec()].is_none());
 
-            let all_values_cf1 = reader.get_all_cf(cf1).unwrap();
+            let all_values_cf1 = get_all_cf(reader, cf1).unwrap();
             assert_eq!(all_values_cf1.len(), 3);
             assert_eq!(all_values_cf1[&b"k11".to_vec()], b"v11".to_vec());
             assert_eq!(all_values_cf1[&b"k12".to_vec()], b"v12".to_vec());
             assert_eq!(all_values_cf1[&b"k13".to_vec()], b"v13".to_vec());
 
-            let all_values_cf2 = reader.get_all_cf(cf2).unwrap();
+            let all_values_cf2 = get_all_cf(reader, cf2).unwrap();
             assert_eq!(all_values_cf2.len(), 3);
             assert_eq!(all_values_cf2[&b"k21".to_vec()], b"v21".to_vec());
             assert_eq!(all_values_cf2[&b"k22".to_vec()], b"v22".to_vec());
@@ -260,8 +266,7 @@ mod test {
 
     #[test]
     fn storage_transaction_basic_tests(){
-        let storage_path = test_dir("storage_transaction_basic_test");
-        clear_path(storage_path.as_str()).unwrap();
+        let (_tmp_dir, storage_path) = test_dir("storage_transaction_basic_tests").unwrap();
 
         let mut storage = Storage::open(storage_path.as_str(), true).unwrap();
 
@@ -276,6 +281,12 @@ mod test {
         let tx = storage.create_transaction().unwrap();
 
         assert!(tx.is_empty_cf(cf1).unwrap() && tx.is_empty_cf(cf2).unwrap());
+
+        // There are no savepoints so there is nowhere to rollback
+        assert!(tx.rollback_to_savepoint().is_err());
+
+        // Transaction can be 'rolled back' to the initial state while being in such a state
+        assert!(tx.rollback().is_ok());
 
         // 1-st update -------------------------------------------------------------------
         tx.update_cf(cf1,
@@ -333,5 +344,23 @@ mod test {
 
         // Transaction was created for an empty storage so the initial state (state after full rollback) is also empty
         assert!(tx.is_empty_cf(cf1).unwrap() && tx.is_empty_cf(cf2).unwrap());
+
+        // There are no savepoints after a full rollback
+        assert!(tx.rollback_to_savepoint().is_err());
+
+        // Updating the transaction from initial state
+        tx.update_cf(cf1,
+                     &vec![
+                         ("k11".as_ref(), "v11".as_ref())],
+                     &vec![]).unwrap();
+        tx.save().unwrap();
+
+        // Committing the updates
+        tx.commit().unwrap();
+
+        // There are no savepoints after a transaction is committed
+        assert!(tx.rollback_to_savepoint().is_err());
+        // Transaction can't be rolled back after it was committed
+        assert!(tx.rollback().is_err());
     }
 }
