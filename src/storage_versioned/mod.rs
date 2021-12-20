@@ -418,8 +418,7 @@ mod test {
 
     #[test]
     fn storage_versioned_rollback_tests(){
-        // Test can't be run when there are no versions of a storage
-        if VERSIONS_STORED == 0 { return }
+        assert_ne!(VERSIONS_STORED, 0, "Rollback test can't be run without any versions of a storage");
 
         let (_tmp_dir, storage_path) = test_dir("storage_versioned_rollback_tests").unwrap();
 
