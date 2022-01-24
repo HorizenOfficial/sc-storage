@@ -7,6 +7,7 @@ use crate::common::{InternalReader, Reader, InternalRef, join_path_strings};
 use crate::TransactionInternal;
 
 pub mod transaction;
+pub mod jni;
 
 pub struct Storage{
     db: TransactionDB

@@ -1,7 +1,6 @@
 #![deny(
 unused_import_braces,
 unused_qualifications,
-trivial_casts,
 trivial_numeric_casts
 )]
 #![deny(
@@ -28,10 +27,8 @@ const_err,
 unused_must_use,
 unused_mut,
 unused_unsafe,
-private_in_public,
-unsafe_code
+private_in_public
 )]
-#![forbid(unsafe_code)]
 
 pub use rocksdb::Transaction as TransactionInternal;
 

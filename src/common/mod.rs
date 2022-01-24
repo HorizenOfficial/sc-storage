@@ -7,6 +7,7 @@ use std::path::Path;
 
 pub mod storage;
 pub mod transaction;
+pub mod jni;
 
 pub trait InternalRef {
 
