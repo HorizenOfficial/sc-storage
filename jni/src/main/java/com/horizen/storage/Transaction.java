@@ -1,12 +1,16 @@
 package com.horizen.storage;
 
 import com.horizen.common.ColumnFamily;
+import com.horizen.common.DBIterator;
+import com.horizen.common.interfaces.Reader;
+import com.horizen.common.interfaces.TransactionBasic;
 import com.horizen.librust.Library;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
-public class Transaction implements AutoCloseable {
+public class Transaction implements Reader, TransactionBasic, AutoCloseable {
     // Loading the Rust library which contains all the underlying logic
     static {
         Library.load();
@@ -24,11 +28,12 @@ public class Transaction implements AutoCloseable {
     private native byte[] nativeGet(ColumnFamily cf, byte[] key);
     private native Map<byte[], Optional<byte[]>> nativeMultiGet(ColumnFamily cf, byte[][] keys);
     private native boolean nativeIsEmpty(ColumnFamily cf);
-    private native boolean nativeCommit();
-    private native boolean nativeUpdate(ColumnFamily cf, Map<byte[], byte[]> toUpdate, byte[][] toDelete);
-    private native boolean nativeSave();
-    private native boolean nativeRollbackToSavepoint();
-    private native boolean nativeRollback();
+    private native void nativeCommit() throws Exception;
+    private native void nativeUpdate(ColumnFamily cf, Map<byte[], byte[]> toUpdate, byte[][] toDelete) throws Exception;
+    private native void nativeSave() throws Exception;
+    private native void nativeRollbackToSavepoint() throws Exception;
+    private native void nativeRollback() throws Exception;
+    private native DBIterator nativeGetIter(ColumnFamily cf, int mode, byte[] starting_key, int direction) throws Exception;
 
     // Constructor is intended to be called from inside of the Rust environment for setting a raw pointer to a Rust-instance of Transaction
     private Transaction(long transactionPointer) {
@@ -45,7 +50,6 @@ public class Transaction implements AutoCloseable {
 
     @Override
     public void close() {
-        checkPointer();
         closeTransaction();
     }
 
@@ -59,9 +63,9 @@ public class Transaction implements AutoCloseable {
         }
     }
 
-    public Map<byte[], Optional<byte[]>> get(ColumnFamily cf, byte[][] keys){
+    public Map<byte[], Optional<byte[]>> get(ColumnFamily cf, Set<byte[]> keys){
         checkPointer();
-        return nativeMultiGet(cf, keys);
+        return nativeMultiGet(cf, keys.toArray(new byte[0][0]));
     }
 
     public byte[] getOrElse(ColumnFamily cf, byte[] key, byte[] defaultValue){
@@ -73,27 +77,45 @@ public class Transaction implements AutoCloseable {
         return nativeIsEmpty(cf);
     }
 
-    public boolean commit(){
-        checkPointer();
-        return nativeCommit();
-    }
-    public boolean update(ColumnFamily cf, Map<byte[], byte[]> toUpdate, byte[][] toDelete){
-        checkPointer();
-        return nativeUpdate(cf, toUpdate, toDelete);
+    public DBIterator getIter(ColumnFamily cf) throws Exception {
+        // The 'starting_key', and 'direction' parameters are ignored for the 'Start' mode
+        return nativeGetIter(cf, DBIterator.Mode.Start, null, 0);
     }
 
-    public boolean save(){
-        checkPointer();
-        return nativeSave();
+    public DBIterator getRIter(ColumnFamily cf) throws Exception {
+        // The 'starting_key', and 'direction' parameters are ignored for the 'End' mode
+        return nativeGetIter(cf, DBIterator.Mode.End, null, 0);
     }
 
-    public boolean rollbackToSavepoint(){
-        checkPointer();
-        return nativeRollbackToSavepoint();
+    public DBIterator getIterFrom(ColumnFamily cf, byte[] starting_key) throws Exception {
+        return nativeGetIter(cf, DBIterator.Mode.From, starting_key, DBIterator.Direction.Forward);
     }
 
-    public boolean rollback(){
+    public DBIterator getRIterFrom(ColumnFamily cf, byte[] starting_key) throws Exception {
+        return nativeGetIter(cf, DBIterator.Mode.From, starting_key, DBIterator.Direction.Reverse);
+    }
+
+    public void commit() throws Exception {
         checkPointer();
-        return nativeRollback();
+        nativeCommit();
+    }
+    public void update(ColumnFamily cf, Map<byte[], byte[]> toUpdate, Set<byte[]> toDelete) throws Exception {
+        checkPointer();
+        nativeUpdate(cf, toUpdate, toDelete.toArray(new byte[0][0]));
+    }
+
+    public void save() throws Exception {
+        checkPointer();
+        nativeSave();
+    }
+
+    public void rollbackToSavepoint() throws Exception {
+        checkPointer();
+        nativeRollbackToSavepoint();
+    }
+
+    public void rollback() throws Exception {
+        checkPointer();
+        nativeRollback();
     }
 }

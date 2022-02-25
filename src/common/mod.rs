@@ -7,6 +7,7 @@ use std::path::Path;
 
 pub mod storage;
 pub mod transaction;
+#[macro_use]
 pub mod jni;
 
 pub trait InternalRef {
@@ -75,7 +76,7 @@ pub trait Reader: InternalReader {
     }
 
     // Retrieves value for a specified key in a specified column column family from an underlying storage or returns None in case the key is absent
-    fn get_cf(&self, cf: &ColumnFamily, key: &[u8]) -> Option<Vec<u8>>{
+    fn get_cf(&self, cf: &ColumnFamily, key: &[u8]) -> Option<Vec<u8>> {
         Some(self.get_cf_internal(cf, key)?.to_vec())
     }
 
@@ -102,10 +103,15 @@ pub trait Reader: InternalReader {
         self.iterator_internal(IteratorMode::Start)
     }
 
-    // Returns iterator for all contained keys in a specified column family in an underlying storage
+    // Returns iterator in a specified mode for all contained keys in a specified column family in an underlying storage
     // NOTE: Result is returned due to a specified CF can be absent so an error should be returned in this case
-    fn get_iter_cf(&self, cf: &ColumnFamily) -> Result<DBIterator, Error>{
-        self.iterator_cf_internal(cf, IteratorMode::Start)
+    fn get_iter_cf_mode(&self, cf: &ColumnFamily, mode: IteratorMode) -> Result<DBIterator, Error> {
+        self.iterator_cf_internal(cf, mode)
+    }
+
+    // Same as get_iter_cf_mode but only for IteratorMode::Start mode
+    fn get_iter_cf(&self, cf: &ColumnFamily) -> Result<DBIterator, Error> {
+        self.get_iter_cf_mode(cf, IteratorMode::Start)
     }
 
     // Checks whether an underlying storage contains any KV-pairs in the 'default' column family

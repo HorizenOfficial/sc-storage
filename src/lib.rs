@@ -31,7 +31,7 @@ private_in_public
 )]
 
 pub use rocksdb::Transaction as TransactionInternal;
-
+#[macro_use]
 pub mod common;
 
 pub mod storage;

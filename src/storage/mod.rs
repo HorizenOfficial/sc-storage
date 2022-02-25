@@ -36,9 +36,9 @@ impl Storage {
         let db_path = join_path_strings(path.to_owned().as_str(), Self::DB_DIR)?;
 
         let db_path_exists = Path::new(db_path.as_str()).exists();
-        if !db_path_exists{
+        if !db_path_exists {
             if !create_if_missing {
-                return Err(Error::new("No need to create a DB".into()));
+                return Err(Error::new("No need to create a DB (DB does not exist and the create_if_missing == false)".into()));
             } else {
                 if std::fs::create_dir_all(&db_path).is_err(){
                     return Err(Error::new("DB directory can't be created".into()))

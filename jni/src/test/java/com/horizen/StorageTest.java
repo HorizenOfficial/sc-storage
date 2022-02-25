@@ -1,11 +1,13 @@
 package com.horizen;
 
 import com.horizen.common.ColumnFamily;
+import com.horizen.common.DBIterator;
 import com.horizen.storage.Storage;
 import com.horizen.storage.Transaction;
 import org.junit.Test;
 
 import java.io.File;
+import java.io.Reader;
 import java.util.*;
 
 import static org.junit.Assert.*;
@@ -43,17 +45,23 @@ public class StorageTest {
         String testStoragePath = "/tmp/jniStorageTest";
         deleteDirectory(testStoragePath);
 
-        assertFalse(Storage.open(testStoragePath, false).isPresent());
+        try{
+            Storage.open(testStoragePath, false);
+            fail();
+        } catch (Exception e){
+            assertEquals(
+                    "Cannot open storage: Error { message: \"No need to create a DB (DB does not exist and the create_if_missing == false)\" }",
+                    e.getMessage()
+            );
+        }
 
-        Optional<Storage> storage_new_opt = Storage.open(testStoragePath, true);
-        assertTrue(storage_new_opt.isPresent());
+        Storage storage_new = Storage.open(testStoragePath, true);
+        assertTrue(storage_new.isOpened());
+        storage_new.close();
+        assertFalse(storage_new.isOpened());
 
-        storage_new_opt.get().close();
-        assertFalse(storage_new_opt.get().isOpened());
-
-        Optional<Storage> storage_opt = Storage.open(testStoragePath, false);
-        assertTrue(storage_opt.isPresent());
-        Storage storage = storage_opt.get();
+        Storage storage = Storage.open(testStoragePath, false);
+        assertTrue(storage.isOpened());
 
         assertFalse(storage.getColumnFamily(cf1String).isPresent());
         assertTrue(storage.setColumnFamily(cf1String));
@@ -87,85 +95,211 @@ public class StorageTest {
         kvToInsert.put(k2Bytes, v2Bytes);
         kvToInsert.put(k3Bytes, v3Bytes);
         kvToInsert.put(k4Bytes, v4Bytes);
-        byte[][] kToDelete = {k2Bytes, k3Bytes};
+        Set<byte[]> kToDelete = new HashSet<>(Arrays.asList(k2Bytes, k3Bytes));
 
-        assertTrue(transaction.save());
+        TransactionBasicTest.test(transaction, cf1, kvToInsert, kToDelete);
 
-        assertTrue(transaction.update(cf1, kvToInsert, new byte[][]{}));
-        assertFalse(transaction.isEmpty(cf1));
+        HashMap<byte[], byte[]> kvExisting = new HashMap<>(kvToInsert);
+        for(byte[] k: kToDelete){
+            kvExisting.remove(k);
+        }
+        ReaderTest.test(transaction, cf1, kvExisting, kToDelete);
 
-        assertTrue(transaction.rollbackToSavepoint());
-        assertTrue(transaction.isEmpty(cf1));
-
-        assertTrue(transaction.update(cf1, kvToInsert, new byte[][]{}));
-        assertFalse(transaction.isEmpty(cf1));
-
-        assertTrue(transaction.rollback());
-        assertTrue(transaction.isEmpty(cf1));
-
-        assertTrue(transaction.update(cf1, kvToInsert, new byte[][]{}));
-        assertTrue(transaction.update(cf1, new HashMap<>(), kToDelete));
+//        try{
+//            transaction.rollbackToSavepoint();
+//            fail();
+//        } catch (Exception e){
+//            assertEquals(
+//                    "Cannot rollback the transaction to save point: Error { message: \"NotFound: \" }",
+//                    e.getMessage()
+//            );
+//        }
+//
+//        transaction.save();
+//
+//        transaction.update(cf1, kvToInsert, new byte[][]{});
+//        assertFalse(transaction.isEmpty(cf1));
+//
+//        transaction.rollbackToSavepoint();
+//        assertTrue(transaction.isEmpty(cf1));
+//
+//        transaction.update(cf1, kvToInsert, new byte[][]{});
+//        assertFalse(transaction.isEmpty(cf1));
+//
+//        transaction.rollback();
+//        assertTrue(transaction.isEmpty(cf1));
+//
+//        transaction.update(cf1, kvToInsert, new byte[][]{});
+//        transaction.update(cf1, new HashMap<>(), kToDelete);
         
         {
-            Optional<byte[]> v1 = transaction.get(cf1, k1Bytes);
-            assertTrue(v1.isPresent());
-            assertArrayEquals(v1.get(), v1Bytes);
+            {
+                DBIterator cf1Iter = transaction.getIter(cf1);
+                Optional<AbstractMap.SimpleEntry<byte[], byte[]>> kv1 = cf1Iter.next();
+                assertTrue(kv1.isPresent() &&
+                        Arrays.equals(kv1.get().getKey(), k1Bytes) &&
+                        Arrays.equals(kv1.get().getValue(), v1Bytes));
 
-            assertTrue(transaction.get(cf1, k1Bytes).isPresent());
-            assertFalse(transaction.get(cf1, k2Bytes).isPresent());
-            assertFalse(transaction.get(cf1, k3Bytes).isPresent());
-            assertTrue(transaction.get(cf1, k4Bytes).isPresent());
+                Optional<AbstractMap.SimpleEntry<byte[], byte[]>> kv4 = cf1Iter.next();
+                assertTrue(kv4.isPresent() &&
+                        Arrays.equals(kv4.get().getKey(), k4Bytes) &&
+                        Arrays.equals(kv4.get().getValue(), v4Bytes));
 
-            byte[][] keysToGet = {k1Bytes, k2Bytes, k3Bytes, k4Bytes};
-            Map<byte[], Optional<byte[]>> kvs = transaction.get(cf1, keysToGet);
+                assertFalse(cf1Iter.next().isPresent());
 
-            assertEquals(kvs.keySet().size(), 4);
-            kvs.forEach((key, valueOpt) -> {
-                if (Arrays.equals(key, k1Bytes)) {
-                    assertTrue(valueOpt.isPresent() && Arrays.equals(valueOpt.get(), v1Bytes));
-                } else if (Arrays.equals(key, k2Bytes)) {
-                    assertFalse(valueOpt.isPresent());
-                } else if (Arrays.equals(key, k3Bytes)) {
-                    assertFalse(valueOpt.isPresent());
-                } else if (Arrays.equals(key, k4Bytes)) {
-                    assertTrue(valueOpt.isPresent() && Arrays.equals(valueOpt.get(), v4Bytes));
-                } else {
-                    throw new IllegalArgumentException("Invalid key");
-                }
-            });
+                DBIterator cf1RIter = transaction.getRIter(cf1);
+                kv4 = cf1RIter.next();
+                assertTrue(kv4.isPresent() &&
+                        Arrays.equals(kv4.get().getKey(), k4Bytes) &&
+                        Arrays.equals(kv4.get().getValue(), v4Bytes));
+
+                kv1 = cf1RIter.next();
+                assertTrue(kv1.isPresent() &&
+                        Arrays.equals(kv1.get().getKey(), k1Bytes) &&
+                        Arrays.equals(kv1.get().getValue(), v1Bytes));
+
+                assertFalse(cf1RIter.next().isPresent());
+
+                DBIterator cf1IterFrom = transaction.getIterFrom(cf1, k1Bytes);
+                kv1 = cf1IterFrom.next();
+                assertTrue(kv1.isPresent() &&
+                        Arrays.equals(kv1.get().getKey(), k1Bytes) &&
+                        Arrays.equals(kv1.get().getValue(), v1Bytes));
+
+                kv4 = cf1IterFrom.next();
+                assertTrue(kv4.isPresent() &&
+                        Arrays.equals(kv4.get().getKey(), k4Bytes) &&
+                        Arrays.equals(kv4.get().getValue(), v4Bytes));
+
+                assertFalse(cf1IterFrom.next().isPresent());
+
+                DBIterator cf1RIterFrom = transaction.getRIterFrom(cf1, k4Bytes);
+                kv4 = cf1RIterFrom.next();
+                assertTrue(kv4.isPresent() &&
+                        Arrays.equals(kv4.get().getKey(), k4Bytes) &&
+                        Arrays.equals(kv4.get().getValue(), v4Bytes));
+
+                kv1 = cf1RIterFrom.next();
+                assertTrue(kv1.isPresent() &&
+                        Arrays.equals(kv1.get().getKey(), k1Bytes) &&
+                        Arrays.equals(kv1.get().getValue(), v1Bytes));
+
+                assertFalse(cf1RIterFrom.next().isPresent());
+            }
+
+//            Optional<byte[]> v1 = transaction.get(cf1, k1Bytes);
+//            assertTrue(v1.isPresent());
+//            assertArrayEquals(v1.get(), v1Bytes);
+//
+//            assertTrue(transaction.get(cf1, k1Bytes).isPresent());
+//            assertFalse(transaction.get(cf1, k2Bytes).isPresent());
+//            assertFalse(transaction.get(cf1, k3Bytes).isPresent());
+//            assertTrue(transaction.get(cf1, k4Bytes).isPresent());
+//
+//            byte[][] keysToGet = {k1Bytes, k2Bytes, k3Bytes, k4Bytes};
+//            Map<byte[], Optional<byte[]>> kvs = transaction.get(cf1, keysToGet);
+//
+//            assertEquals(kvs.keySet().size(), 4);
+//            kvs.forEach((key, valueOpt) -> {
+//                if (Arrays.equals(key, k1Bytes)) {
+//                    assertTrue(valueOpt.isPresent() && Arrays.equals(valueOpt.get(), v1Bytes));
+//                } else if (Arrays.equals(key, k2Bytes)) {
+//                    assertFalse(valueOpt.isPresent());
+//                } else if (Arrays.equals(key, k3Bytes)) {
+//                    assertFalse(valueOpt.isPresent());
+//                } else if (Arrays.equals(key, k4Bytes)) {
+//                    assertTrue(valueOpt.isPresent() && Arrays.equals(valueOpt.get(), v4Bytes));
+//                } else {
+//                    throw new IllegalArgumentException("Invalid key");
+//                }
+//            });
         }
 
         assertTrue(storage.isEmpty(cf1));
-        assertTrue(transactionOpt.get().commit());
+        transactionOpt.get().commit();
         assertFalse(storage.isEmpty(cf1));
 
         {
-            Optional<byte[]> v1 = storage.get(cf1, k1Bytes);
-            assertTrue(v1.isPresent());
-            assertArrayEquals(v1.get(), v1Bytes);
+            {
+                DBIterator cf1Iter = storage.getIter(cf1);
+                Optional<AbstractMap.SimpleEntry<byte[], byte[]>> kv1 = cf1Iter.next();
+                assertTrue(kv1.isPresent() &&
+                        Arrays.equals(kv1.get().getKey(), k1Bytes) &&
+                        Arrays.equals(kv1.get().getValue(), v1Bytes));
 
-            assertTrue(storage.get(cf1, k1Bytes).isPresent());
-            assertFalse(storage.get(cf1, k2Bytes).isPresent());
-            assertFalse(storage.get(cf1, k3Bytes).isPresent());
-            assertTrue(storage.get(cf1, k4Bytes).isPresent());
+                Optional<AbstractMap.SimpleEntry<byte[], byte[]>> kv4 = cf1Iter.next();
+                assertTrue(kv4.isPresent() &&
+                        Arrays.equals(kv4.get().getKey(), k4Bytes) &&
+                        Arrays.equals(kv4.get().getValue(), v4Bytes));
 
-            byte[][] keysToGet = {k1Bytes, k2Bytes, k3Bytes, k4Bytes};
-            Map<byte[], Optional<byte[]>> kvs = storage.get(cf1, keysToGet);
+                assertFalse(cf1Iter.next().isPresent());
 
-            assertEquals(kvs.keySet().size(), 4);
-            kvs.forEach((key, valueOpt) -> {
-                if (Arrays.equals(key, k1Bytes)) {
-                    assertTrue(valueOpt.isPresent() && Arrays.equals(valueOpt.get(), v1Bytes));
-                } else if (Arrays.equals(key, k2Bytes)) {
-                    assertFalse(valueOpt.isPresent());
-                } else if (Arrays.equals(key, k3Bytes)) {
-                    assertFalse(valueOpt.isPresent());
-                } else if (Arrays.equals(key, k4Bytes)) {
-                    assertTrue(valueOpt.isPresent() && Arrays.equals(valueOpt.get(), v4Bytes));
-                } else {
-                    throw new IllegalArgumentException("Invalid key");
-                }
-            });
+                DBIterator cf1RIter = storage.getRIter(cf1);
+                kv4 = cf1RIter.next();
+                assertTrue(kv4.isPresent() &&
+                        Arrays.equals(kv4.get().getKey(), k4Bytes) &&
+                        Arrays.equals(kv4.get().getValue(), v4Bytes));
+
+                kv1 = cf1RIter.next();
+                assertTrue(kv1.isPresent() &&
+                        Arrays.equals(kv1.get().getKey(), k1Bytes) &&
+                        Arrays.equals(kv1.get().getValue(), v1Bytes));
+
+                assertFalse(cf1RIter.next().isPresent());
+
+                DBIterator cf1IterFrom = storage.getIterFrom(cf1, k1Bytes);
+                kv1 = cf1IterFrom.next();
+                assertTrue(kv1.isPresent() &&
+                        Arrays.equals(kv1.get().getKey(), k1Bytes) &&
+                        Arrays.equals(kv1.get().getValue(), v1Bytes));
+
+                kv4 = cf1IterFrom.next();
+                assertTrue(kv4.isPresent() &&
+                        Arrays.equals(kv4.get().getKey(), k4Bytes) &&
+                        Arrays.equals(kv4.get().getValue(), v4Bytes));
+
+                assertFalse(cf1IterFrom.next().isPresent());
+
+                DBIterator cf1RIterFrom = storage.getRIterFrom(cf1, k4Bytes);
+                kv4 = cf1RIterFrom.next();
+                assertTrue(kv4.isPresent() &&
+                        Arrays.equals(kv4.get().getKey(), k4Bytes) &&
+                        Arrays.equals(kv4.get().getValue(), v4Bytes));
+
+                kv1 = cf1RIterFrom.next();
+                assertTrue(kv1.isPresent() &&
+                        Arrays.equals(kv1.get().getKey(), k1Bytes) &&
+                        Arrays.equals(kv1.get().getValue(), v1Bytes));
+
+                assertFalse(cf1RIterFrom.next().isPresent());
+            }
+
+//            Optional<byte[]> v1 = storage.get(cf1, k1Bytes);
+//            assertTrue(v1.isPresent());
+//            assertArrayEquals(v1.get(), v1Bytes);
+//
+//            assertTrue(storage.get(cf1, k1Bytes).isPresent());
+//            assertFalse(storage.get(cf1, k2Bytes).isPresent());
+//            assertFalse(storage.get(cf1, k3Bytes).isPresent());
+//            assertTrue(storage.get(cf1, k4Bytes).isPresent());
+//
+//            byte[][] keysToGet = {k1Bytes, k2Bytes, k3Bytes, k4Bytes};
+//            Map<byte[], Optional<byte[]>> kvs = storage.get(cf1, keysToGet);
+//
+//            assertEquals(kvs.keySet().size(), 4);
+//            kvs.forEach((key, valueOpt) -> {
+//                if (Arrays.equals(key, k1Bytes)) {
+//                    assertTrue(valueOpt.isPresent() && Arrays.equals(valueOpt.get(), v1Bytes));
+//                } else if (Arrays.equals(key, k2Bytes)) {
+//                    assertFalse(valueOpt.isPresent());
+//                } else if (Arrays.equals(key, k3Bytes)) {
+//                    assertFalse(valueOpt.isPresent());
+//                } else if (Arrays.equals(key, k4Bytes)) {
+//                    assertTrue(valueOpt.isPresent() && Arrays.equals(valueOpt.get(), v4Bytes));
+//                } else {
+//                    throw new IllegalArgumentException("Invalid key");
+//                }
+//            });
         }
         transactionOpt.get().close();
     }

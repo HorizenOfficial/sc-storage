@@ -1,14 +1,12 @@
 use jni::JNIEnv;
-use jni::objects::{JClass, JValue, JString, JObject};
-use rocksdb::ColumnFamily;
-use jni::sys::{jobject, jlong, jboolean, jbyteArray, jobjectArray, JNI_TRUE, JNI_FALSE};
-use std::ptr::null_mut;
-use crate::common::jni::{unwrap_ptr, unwrap_mut_ptr, map_to_java_map, create_java_object, java_array_to_vec_byte, java_map_to_vec_byte};
-use crate::common::storage::ColumnFamiliesManager;
-use crate::common::Reader;
-use crate::common::transaction::TransactionBasic;
+use jni::objects::{JClass, JString, JObject};
+use jni::sys::{jobject, jboolean, jbyteArray, jobjectArray, jint};
+use crate::common::jni::{unwrap_ptr, create_java_object, exception::_throw_inner, unwrap_mut_ptr};
 use crate::storage::Storage;
 use crate::storage::transaction::Transaction;
+use crate::common::jni::reader;
+use crate::common::jni::transaction_basic;
+use crate::common::jni::cf_manager;
 
 // ------------------------------------- Storage JNI wrappers -------------------------------------
 
@@ -23,15 +21,22 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeOpen(
     let storage_path = _env.get_string(_storage_path)
         .expect("Should be able to read jstring as Rust String");
 
-    if let Ok(storage) = Storage::open(
+    match Storage::open(
         storage_path.to_str().unwrap(),
         _create_if_missing != 0
     ){
-        let storage_class = _env.find_class("com/horizen/storage/Storage")
-            .expect("Should be able to find class Storage");
-        create_java_object(&_env, &storage_class, storage)
-    } else {
-        null_mut()
+        Ok(storage) => {
+            let storage_class = _env.find_class("com/horizen/storage/Storage")
+                .expect("Should be able to find class Storage");
+            create_java_object(&_env, &storage_class, storage)
+        }
+        Err(e) => {
+            throw!(
+                &_env, "java/lang/Exception",
+                format!("Cannot open storage: {:?}", e).as_str(),
+                JObject::null().into_inner()
+            )
+        }
     }
 }
 
@@ -40,8 +45,7 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeClose(
     _env: JNIEnv,
     _class: JClass,
     _storage: *mut Storage,
-)
-{
+){
     if !_storage.is_null(){
         drop(unsafe { Box::from_raw(_storage) })
     }
@@ -55,18 +59,10 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeGet(
     _key: jbyteArray
 ) -> jbyteArray
 {
-    let storage = unwrap_ptr::<Storage>(&_env, _storage);
-    let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
-
-    let key = _env.convert_byte_array(_key)
-        .expect("Should be able to convert to Rust byte array");
-
-    if let Some(value) = storage.get_cf(cf, key.as_slice()){
-        _env.byte_array_from_slice(value.as_slice())
-            .expect("Should be able to convert Rust slice into jbytearray")
-    } else {
-        null_mut()
-    }
+    reader::get(
+        unwrap_ptr::<Storage>(&_env, _storage),
+        _env, _cf, _key
+    )
 }
 
 #[no_mangle]
@@ -77,15 +73,10 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeMultiGet(
     _keys: jobjectArray
 ) -> jobject
 {
-    let storage = unwrap_ptr::<Storage>(&_env, _storage);
-    let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
-    let keys = java_array_to_vec_byte(&_env, _keys);
-
-    let key_values = storage.multi_get_cf(
-        cf,
-        keys.iter().map(|k|k.as_slice()).collect::<Vec<_>>().as_slice()
-    );
-    map_to_java_map(&_env, &key_values)
+    reader::multi_get(
+        unwrap_ptr::<Storage>(&_env, _storage),
+        _env, _cf, _keys
+    )
 }
 
 #[no_mangle]
@@ -93,15 +84,28 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeIsEmpty(
     _env: JNIEnv,
     _storage: JObject,
     _cf: JObject,
-) -> jboolean {
-    let storage = unwrap_ptr::<Storage>(&_env, _storage);
-    let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
+) -> jboolean
+{
+    reader::is_empty(
+        unwrap_ptr::<Storage>(&_env, _storage),
+        _env, _cf
+    )
+}
 
-    if let Ok(is_empty) = storage.is_empty_cf(cf){
-        is_empty as jboolean
-    } else {
-        JNI_TRUE
-    }
+#[no_mangle]
+pub extern "system" fn Java_com_horizen_storage_Storage_nativeGetIter(
+    _env: JNIEnv,
+    _storage: JObject,
+    _cf: JObject,
+    _mode: jint,
+    _starting_key: jbyteArray,
+    _direction: jint
+) -> jobject
+{
+    reader::get_iter(
+        unwrap_ptr::<Storage>(&_env, _storage),
+        _env, _cf, _mode, _starting_key, _direction
+    )
 }
 
 #[no_mangle]
@@ -109,18 +113,11 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeSetColumnFamily(
     _env: JNIEnv,
     _storage: JObject,
     _cf_name: JString
-) -> jboolean {
-    let storage = unwrap_mut_ptr::<Storage>(&_env, _storage);
-
-    let cf_name = _env
-        .get_string(_cf_name)
-        .expect("Should be able to read jstring as Rust String");
-
-    if let Ok(()) = storage.set_column_family(cf_name.to_str().unwrap()){
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+){
+    cf_manager::set_column_family(
+        unwrap_mut_ptr::<Storage>(&_env, _storage),
+        _env, _cf_name
+    )
 }
 
 #[no_mangle]
@@ -130,26 +127,10 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeGetColumnFamily(
     _cf_name: JString
 ) -> jobject
 {
-    let storage = unwrap_ptr::<Storage>(&_env, _storage);
-
-    let cf_name = _env
-        .get_string(_cf_name)
-        .expect("Should be able to read jstring as Rust String");
-
-    if let Some(cf_ref) = storage.get_column_family(cf_name.to_str().unwrap()){
-        let column_family_class = _env.find_class("com/horizen/common/ColumnFamily")
-            .expect("Should be able to find class ColumnFamily");
-        // Converting the cf_ref into a raw pointer then converting the raw pointer into jlong
-        let column_family_ptr: jlong = jlong::from(
-            cf_ref as *const ColumnFamily as i64
-        );
-        // Create and return new Java-ColumnFamily
-        _env.new_object(column_family_class, "(J)V", &[JValue::Long(column_family_ptr)])
-            .expect("Should be able to create new Java-object")
-            .into_inner()
-    } else {
-        null_mut()
-    }
+    cf_manager::get_column_family(
+        unwrap_ptr::<Storage>(&_env, _storage),
+        _env, _cf_name
+    )
 }
 
 #[no_mangle]
@@ -165,18 +146,35 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeCreateTransaction(
             .expect("Should be able to find class Transaction");
         create_java_object(&_env, &transaction_class, transaction)
     } else {
-        null_mut()
+        JObject::null().into_inner()
     }
 }
+
 // ------------------------------------- Transaction JNI wrappers -------------------------------------
+
+#[no_mangle]
+pub extern "system" fn Java_com_horizen_storage_Transaction_nativeCommit(
+    _env: JNIEnv,
+    _transaction: JObject,
+) {
+    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
+    match transaction.commit(){
+        Ok(()) => {}
+        Err(e) => {
+            throw!(
+                &_env, "java/lang/Exception",
+                format!("Cannot commit the transaction: {:?}", e).as_str()
+            )
+        }
+    }
+}
 
 #[no_mangle]
 pub extern "system" fn Java_com_horizen_storage_Transaction_nativeClose(
     _env: JNIEnv,
     _class: JClass,
     _transaction: *mut Transaction,
-)
-{
+){
     if !_transaction.is_null(){
         drop(unsafe { Box::from_raw(_transaction) })
     }
@@ -190,18 +188,10 @@ pub extern "system" fn Java_com_horizen_storage_Transaction_nativeGet(
     _key: jbyteArray
 ) -> jbyteArray
 {
-    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
-    let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
-
-    let key = _env.convert_byte_array(_key)
-        .expect("Should be able to convert to Rust byte array");
-
-    if let Some(value) = transaction.get_cf(cf, key.as_slice()){
-        _env.byte_array_from_slice(value.as_slice())
-            .expect("Should be able to convert Rust slice into jbytearray")
-    } else {
-        null_mut()
-    }
+    reader::get(
+        unwrap_ptr::<Transaction>(&_env, _transaction),
+        _env, _cf, _key
+    )
 }
 
 #[no_mangle]
@@ -212,15 +202,10 @@ pub extern "system" fn Java_com_horizen_storage_Transaction_nativeMultiGet(
     _keys: jobjectArray
 ) -> jobject
 {
-    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
-    let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
-    let keys = java_array_to_vec_byte(&_env, _keys);
-
-    let key_values = transaction.multi_get_cf(
-        cf,
-        keys.iter().map(|k|k.as_slice()).collect::<Vec<_>>().as_slice()
-    );
-    map_to_java_map(&_env, &key_values)
+    reader::multi_get(
+        unwrap_ptr::<Transaction>(&_env, _transaction),
+        _env, _cf, _keys
+    )
 }
 
 #[no_mangle]
@@ -228,28 +213,28 @@ pub extern "system" fn Java_com_horizen_storage_Transaction_nativeIsEmpty(
     _env: JNIEnv,
     _transaction: JObject,
     _cf: JObject,
-) -> jboolean {
-    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
-    let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
-
-    if let Ok(is_empty) = transaction.is_empty_cf(cf){
-        is_empty as jboolean
-    } else {
-        JNI_TRUE
-    }
+) -> jboolean
+{
+    reader::is_empty(
+        unwrap_ptr::<Transaction>(&_env, _transaction),
+        _env, _cf
+    )
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_horizen_storage_Transaction_nativeCommit(
+pub extern "system" fn Java_com_horizen_storage_Transaction_nativeGetIter(
     _env: JNIEnv,
     _transaction: JObject,
-)-> jboolean {
-    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
-    if let Ok(()) = transaction.commit(){
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+    _cf: JObject,
+    _mode: jint,
+    _starting_key: jbyteArray,
+    _direction: jint
+) -> jobject
+{
+    reader::get_iter(
+        unwrap_ptr::<Transaction>(&_env, _transaction),
+        _env, _cf, _mode, _starting_key, _direction
+    )
 }
 
 #[no_mangle]
@@ -259,62 +244,42 @@ pub extern "system" fn Java_com_horizen_storage_Transaction_nativeUpdate(
     _cf: JObject,
     _to_update: JObject,      // Map<byte[], byte[]>
     _to_delete: jobjectArray  // byte[][]
-)-> jboolean {
-    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
-    let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
-
-    if let Some(to_update) = java_map_to_vec_byte(&_env, _to_update){
-        let to_delete = java_array_to_vec_byte(&_env, _to_delete);
-
-        if let Ok(()) = transaction.update_cf(
-            cf,
-            &to_update.iter().map(|kv| (kv.0.as_slice(), kv.1.as_slice())).collect(),
-            &to_delete.iter().map(|k| k.as_slice()).collect()
-        ){
-            JNI_TRUE
-        } else {
-            JNI_FALSE
-        }
-    } else {
-        JNI_FALSE
-    }
+){
+    transaction_basic::update(
+        unwrap_ptr::<Transaction>(&_env, _transaction),
+        _env, _cf, _to_update, _to_delete
+    )
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_horizen_storage_Transaction_nativeSave(
     _env: JNIEnv,
     _transaction: JObject,
-)-> jboolean {
-    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
-    if let Ok(()) = transaction.save(){
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+){
+    transaction_basic::save(
+        unwrap_ptr::<Transaction>(&_env, _transaction),
+        _env
+    )
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_horizen_storage_Transaction_nativeRollbackToSavepoint(
     _env: JNIEnv,
     _transaction: JObject,
-)-> jboolean {
-    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
-    if let Ok(()) = transaction.rollback_to_savepoint(){
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+){
+    transaction_basic::rollback_to_savepoint(
+        unwrap_ptr::<Transaction>(&_env, _transaction),
+        _env
+    )
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_horizen_storage_Transaction_nativeRollback(
     _env: JNIEnv,
     _transaction: JObject,
-)-> jboolean {
-    let transaction = unwrap_ptr::<Transaction>(&_env, _transaction);
-    if let Ok(()) = transaction.rollback(){
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+){
+    transaction_basic::rollback(
+        unwrap_ptr::<Transaction>(&_env, _transaction),
+        _env
+    )
 }
