@@ -10,7 +10,7 @@ public class ColumnFamily {
 
     private final long columnFamilyPointer;
 
-    // Constructor is intended to be called from inside of the Rust environment for setting a raw pointer to a Rust-instance of ColumnFamily
+    // Constructor is intended to be called from inside the Rust environment for setting a raw pointer to a Rust-instance of ColumnFamily
     private ColumnFamily(long columnFamilyPointer) {
         this.columnFamilyPointer = columnFamilyPointer;
     }

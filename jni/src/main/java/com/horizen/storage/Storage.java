@@ -39,7 +39,7 @@ public class Storage implements Reader, ColumnFamilyManager, AutoCloseable {
     private native Transaction nativeCreateTransaction();
     private native DBIterator nativeGetIter(ColumnFamily cf, int mode, byte[] starting_key, int direction) throws Exception;
     private native ColumnFamily nativeGetColumnFamily(String cf_name);
-    private native boolean nativeSetColumnFamily(String cf_name) throws Exception;
+    private native void nativeSetColumnFamily(String cf_name) throws Exception;
 
     public static Storage open(String storagePath, boolean createIfMissing) throws Exception {
         return nativeOpen(storagePath, createIfMissing);
@@ -125,8 +125,8 @@ public class Storage implements Reader, ColumnFamilyManager, AutoCloseable {
         }
     }
 
-    public boolean setColumnFamily(String cf_name) throws Exception {
+    public void setColumnFamily(String cf_name) throws Exception {
         checkPointer();
-        return nativeSetColumnFamily(cf_name);
+        nativeSetColumnFamily(cf_name);
     }
 }
