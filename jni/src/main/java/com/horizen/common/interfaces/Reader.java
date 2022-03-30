@@ -8,7 +8,6 @@ import java.util.Optional;
 import java.util.Set;
 
 public interface Reader {
-
     Optional<byte[]> get(ColumnFamily cf, byte[] key);
     Map<byte[], Optional<byte[]>> get(ColumnFamily cf,  Set<byte[]> keys);
     byte[] getOrElse(ColumnFamily cf, byte[] key, byte[] defaultValue);

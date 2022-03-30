@@ -1,4 +1,4 @@
-package com.horizen.storage;
+package com.horizen.storageVersioned;
 
 import com.horizen.common.ColumnFamily;
 import com.horizen.common.DBIterator;
@@ -6,56 +6,57 @@ import com.horizen.common.interfaces.ColumnFamilyManager;
 import com.horizen.common.interfaces.DefaultReader;
 import com.horizen.librust.Library;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
-public class Storage implements DefaultReader, ColumnFamilyManager, AutoCloseable {
+public class StorageVersioned implements DefaultReader, ColumnFamilyManager, AutoCloseable {
     // Loading the Rust library which contains all the underlying logic
     static {
         Library.load();
     }
 
-    private long storagePointer;
-    final private ColumnFamily defaultCf;
+    private long storageVersionedPointer;
+    private ColumnFamily defaultCf;
 
     public void checkPointer() throws IllegalStateException {
-        if (storagePointer == 0)
-            throw new IllegalStateException("Storage instance was freed");
+        if (storageVersionedPointer == 0)
+            throw new IllegalStateException("StorageVersioned instance was freed");
     }
 
     // Constructor is intended to be called from inside the Rust environment for setting a raw pointer to a Rust-instance of Storage
-    private Storage(long storagePointer, long defaultColumnFamilyPointer) {
-        this.storagePointer = storagePointer;
+    private StorageVersioned(long storageVersionedPointer, long defaultColumnFamilyPointer) {
+        this.storageVersionedPointer = storageVersionedPointer;
         this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer);
     }
 
     // Gates to the Rust-side API
-    private static native Storage nativeOpen(String storagePath, boolean createIfMissing) throws Exception;
+    private static native StorageVersioned nativeOpen(String storagePath, boolean createIfMissing, int versionsStored) throws Exception;
     private static native void nativeClose(long storagePointer);
 
     private native byte[] nativeGet(ColumnFamily cf, byte[] key);
     private native Map<byte[], Optional<byte[]>> nativeMultiGet(ColumnFamily cf, byte[][] keys);
     private native boolean nativeIsEmpty(ColumnFamily cf);
-    private native Transaction nativeCreateTransaction();
+    private native TransactionVersioned nativeCreateTransaction(String versionId);
     private native DBIterator nativeGetIter(ColumnFamily cf, int mode, byte[] starting_key, int direction) throws Exception;
     private native ColumnFamily nativeGetColumnFamily(String cf_name);
     private native void nativeSetColumnFamily(String cf_name) throws Exception;
+    private native void nativeRollback(String version_id) throws Exception;
+    private native String[] nativeRollbackVersions() throws Exception;
+    private native String nativeLastVersion() throws Exception;
 
-    public static Storage open(String storagePath, boolean createIfMissing) throws Exception {
-        return nativeOpen(storagePath, createIfMissing);
+    public static StorageVersioned open(String storagePath, boolean createIfMissing, int versionsStored) throws Exception {
+        return nativeOpen(storagePath, createIfMissing, versionsStored);
     }
 
     // Checks if Storage is correctly opened
     public boolean isOpened(){
-        return storagePointer != 0;
+        return storageVersionedPointer != 0;
     }
 
     // Closes storage (frees Rust memory from Storage object)
     public void closeStorage() {
-        if (storagePointer != 0) {
-            nativeClose(this.storagePointer);
-            storagePointer = 0;
+        if (storageVersionedPointer != 0) {
+            nativeClose(this.storageVersionedPointer);
+            storageVersionedPointer = 0;
         }
     }
 
@@ -92,9 +93,13 @@ public class Storage implements DefaultReader, ColumnFamilyManager, AutoCloseabl
         return nativeIsEmpty(cf);
     }
 
-    public Optional<Transaction> createTransaction(){
+    public Optional<TransactionVersioned> createTransaction(Optional<String> versionIdOpt){
         checkPointer();
-        Transaction transaction = nativeCreateTransaction();
+        String versionId = null;
+        if (versionIdOpt.isPresent()){
+            versionId = versionIdOpt.get();
+        }
+        TransactionVersioned transaction = nativeCreateTransaction(versionId);
         if(transaction != null){
             return Optional.of(transaction);
         } else {
@@ -133,5 +138,29 @@ public class Storage implements DefaultReader, ColumnFamilyManager, AutoCloseabl
     public void setColumnFamily(String cf_name) throws Exception {
         checkPointer();
         nativeSetColumnFamily(cf_name);
+    }
+
+    public void rollback(String version_id) throws Exception {
+        checkPointer();
+        nativeRollback(version_id);
+        // Re-initializing the default CF's descriptor;
+        // NOTE: Default CF should be always existing in an underlying storage,
+        //       so there is no need to check a returned value with 'isPresent'
+        defaultCf = getColumnFamily(DEFAULT_CF_NAME).get();
+    }
+
+    public List<String> rollbackVersions() throws Exception {
+        checkPointer();
+        return new ArrayList<>(Arrays.asList(nativeRollbackVersions()));
+    }
+
+    public Optional<String> lastVersion() throws Exception {
+        checkPointer();
+        String lastVersion = nativeLastVersion();
+        if(lastVersion != null){
+            return Optional.of(lastVersion);
+        } else {
+            return Optional.empty();
+        }
     }
 }

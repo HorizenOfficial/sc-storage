@@ -7,6 +7,9 @@ use crate::storage::transaction::Transaction;
 use std::collections::HashMap;
 use jni::sys::{jobject, jlong, jobjectArray};
 use jni::signature::JavaType;
+use crate::common::storage::{ColumnFamiliesManager, DEFAULT_CF_NAME};
+use crate::storage_versioned::StorageVersioned;
+use crate::storage_versioned::transaction_versioned::TransactionVersioned;
 
 #[macro_use]
 pub mod exception;
@@ -31,6 +34,12 @@ fn get_field_name<'a, T: 'static>() -> &'a str {
     }
     else if TypeId::of::<T>() == TypeId::of::<Transaction>(){
         "transactionPointer"
+    }
+    else if TypeId::of::<T>() == TypeId::of::<StorageVersioned>(){
+        "storageVersionedPointer"
+    }
+    else if TypeId::of::<T>() == TypeId::of::<TransactionVersioned>(){
+        "transactionVersionedPointer"
     }
     else if TypeId::of::<T>() == TypeId::of::<ColumnFamily>(){
         "columnFamilyPointer"
@@ -67,6 +76,89 @@ pub fn create_java_object<T>(env: &JNIEnv, class: &JClass, rust_object: T) -> jo
     env.new_object(*class, "(J)V", &[JValue::Long(rust_object_ptr)])
         .expect("Should be able to create new Java-object")
         .into_inner()
+}
+
+pub fn create_transaction_java_object<T>(env: &JNIEnv, class: &JClass, transaction_object: T, default_cf_ref: &ColumnFamily) -> jobject {
+    // Wrapping transaction_object with a Box and getting a raw pointer as jlong
+    let transaction_object_ptr: jlong = jlong::from(
+        Box::into_raw(Box::new(transaction_object)) as i64
+    );
+    // Converting the default_cf_ref into a raw pointer then converting the raw pointer into jlong
+    let default_column_family_ptr: jlong = jlong::from(
+        default_cf_ref as *const ColumnFamily as i64
+    );
+    // Create and return new Transaction Java-object with default CF in the 2-nd parameter
+    env.new_object(*class, "(JJ)V",
+                   &[JValue::Long(transaction_object_ptr), JValue::Long(default_column_family_ptr)])
+        .expect("Should be able to create new Java-object with Default CF")
+        .into_inner()
+}
+
+pub fn create_transaction_versioned_java_object(env: &JNIEnv, class: &JClass, transaction_object: TransactionVersioned) -> jobject {
+    // Wrapping transaction_object with a Box and getting a raw pointer as jlong
+    let transaction_object_ptr: jlong = jlong::from(
+        Box::into_raw(Box::new(transaction_object)) as i64
+    );
+    // ColumnFamily reference should be taken from a moved into the Box object of TransactionVersioned
+    let default_cf_ref = read_raw_pointer(transaction_object_ptr as *const TransactionVersioned)
+        .get_column_family(DEFAULT_CF_NAME).expect("Should be able to call the 'get_column_family'")
+        .expect("Should be able to get the default column family");
+    // Converting the default_cf_ref into a raw pointer then converting the raw pointer into jlong
+    let default_column_family_ptr: jlong = jlong::from(
+        default_cf_ref as *const ColumnFamily as i64
+    );
+    // Create and return new Transaction Java-object with default CF in the 2-nd parameter
+    env.new_object(*class, "(JJ)V",
+                   &[JValue::Long(transaction_object_ptr), JValue::Long(default_column_family_ptr)])
+        .expect("Should be able to create new Java-object with Default CF")
+        .into_inner()
+}
+
+pub fn create_storage_java_object<T: ColumnFamiliesManager>(env: &JNIEnv, class: &JClass, storage_object: T) -> jobject {
+    // Wrapping storage_object with a Box and getting a raw pointer as jlong
+    let storage_object_ptr: jlong = jlong::from(
+        Box::into_raw(Box::new(storage_object)) as i64
+    );
+    // ColumnFamily reference should be taken from a moved into the Box object of Storage or StorageVersioned
+    let default_cf_ref = read_raw_pointer(storage_object_ptr as *const T)
+        .get_column_family(DEFAULT_CF_NAME)
+        .expect("Should be able to get the default column family");
+    // Converting the default_cf_ref into a raw pointer then converting the raw pointer into jlong
+    let default_column_family_ptr: jlong = jlong::from(
+        default_cf_ref as *const ColumnFamily as i64
+    );
+    // Create and return new Storage Java-object with default CF in the 2-nd parameter
+    env.new_object(*class, "(JJ)V",
+                   &[JValue::Long(storage_object_ptr), JValue::Long(default_column_family_ptr)])
+        .expect("Should be able to create new Java-object with Default CF")
+        .into_inner()
+}
+
+
+pub fn create_cf_java_object(env: &JNIEnv, cf_ref: &ColumnFamily) -> jobject {
+    let column_family_class = env.find_class("com/horizen/common/ColumnFamily")
+        .expect("Should be able to find class ColumnFamily");
+    // Converting the cf_ref into a raw pointer then converting the raw pointer into jlong
+    let column_family_ptr: jlong = jlong::from(
+        cf_ref as *const ColumnFamily as i64
+    );
+    // Create and return new Java-ColumnFamily
+    env.new_object(column_family_class, "(J)V", &[JValue::Long(column_family_ptr)])
+       .expect("Should be able to create ColumnFamily Java-object")
+       .into_inner()
+}
+
+// Creates jobjectArray from specified vector of jobjects of specified class
+pub fn create_jarray(env: &JNIEnv, obj_class: JClass, default_obj: jobject, objects: Vec<jobject>) -> jobjectArray {
+    let java_array = env
+        .new_object_array(objects.len() as i32, obj_class, default_obj)
+        .expect("Should be able to create array of jobjects");
+
+    for (i, obj) in objects.into_iter().enumerate() {
+        env.set_object_array_element(java_array, i as i32, obj)
+            .expect("Should be able to add object to java array");
+    }
+    java_array
 }
 
 // Creates a SimpleEntry Java-object (key-value container) containing a specified key-value pair

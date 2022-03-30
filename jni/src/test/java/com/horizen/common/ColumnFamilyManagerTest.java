@@ -1,7 +1,6 @@
 package com.horizen.common;
 
 import com.horizen.common.interfaces.ColumnFamilyManager;
-import com.horizen.common.interfaces.Reader;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -15,30 +14,39 @@ public class ColumnFamilyManagerTest {
 
     public static class TestCFs {
         public ArrayList<ColumnFamily> cfs = new ArrayList<>();
+        public ColumnFamily defaultCf;
 
         TestCFs(List<ColumnFamily> cfs){
             this.cfs.addAll(cfs);
+            defaultCf = cfs.get(0);
         }
     }
 
-    private final static String defaultCf = "default";
-    private final static String cf1String = "cf1";
+    public final static String defaultCf = ColumnFamilyManager.DEFAULT_CF_NAME;
+    public final static String cf1String = "cf1";
+    public final static ArrayList<String> cfNames = new ArrayList<>(Arrays.asList(defaultCf, cf1String));
 
-    public static TestCFs run(ColumnFamilyManager cfManager) throws Exception {
+    public static TestCFs initialize(ColumnFamilyManager cfManager) throws Exception {
         assertFalse(cfManager.getColumnFamily(cf1String).isPresent());
         cfManager.setColumnFamily(cf1String);
 
         Optional<ColumnFamily> cf1_opt = cfManager.getColumnFamily(cf1String);
         assertTrue(cf1_opt.isPresent());
-        ColumnFamily cf1 = cf1_opt.get();
+
+        // Default CF should be already existing in an empty storage
+        Optional<ColumnFamily> cf_default_opt = cfManager.getColumnFamily(defaultCf);
+        assertTrue(cf_default_opt.isPresent());
+
+        return new TestCFs(Arrays.asList(cf_default_opt.get(), cf1_opt.get()));
+    }
+
+    public static TestCFs get(ColumnFamilyManager cfManager) {
+        Optional<ColumnFamily> cf1_opt = cfManager.getColumnFamily(cf1String);
+        assertTrue(cf1_opt.isPresent());
 
         Optional<ColumnFamily> cf_default_opt = cfManager.getColumnFamily(defaultCf);
         assertTrue(cf_default_opt.isPresent());
-        ColumnFamily cf_default = cf_default_opt.get();
 
-        assertTrue(((Reader)cfManager).isEmpty(cf_default));
-        assertTrue(((Reader)cfManager).isEmpty(cf1));
-
-        return new TestCFs(Arrays.asList(cf_default, cf1));
+        return new TestCFs(Arrays.asList(cf_default_opt.get(), cf1_opt.get()));
     }
 }

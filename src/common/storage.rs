@@ -2,6 +2,8 @@ use rocksdb::{ColumnFamily, Options, Error};
 use rocksdb::transactions::ops::{GetColumnFamilies, CreateCf};
 use crate::common::InternalRef;
 
+pub const DEFAULT_CF_NAME: &str = "default";
+
 pub trait ColumnFamiliesManager: InternalRef {
 
     // Trait for managing column families of Storage/StorageVersioned

@@ -1,7 +1,6 @@
 package com.horizen.common;
 
-import com.horizen.common.ColumnFamily;
-import com.horizen.common.DBIterator;
+import com.horizen.common.interfaces.DefaultReader;
 import com.horizen.common.interfaces.Reader;
 
 import java.util.*;
@@ -97,6 +96,55 @@ public class ReaderTest {
             testRIter(reader.getRIter(cf), existing);
             testIter(reader.getIterFrom(cf, existing.get(0).getKey()), existing);
             testRIter(reader.getRIterFrom(cf, existing.get(existing.size() - 1).getKey()), existing);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+        return true;
+    }
+
+    public static boolean runDefault(DefaultReader defaultReader,
+                                     ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> existing,
+                                     Set<byte[]> absent) {
+        try{
+            existing.forEach( kv -> {
+                        Optional<byte[]> retrievedValue = defaultReader.get(kv.getKey());
+                        assertTrue(retrievedValue.isPresent());
+                        assertArrayEquals(retrievedValue.get(), kv.getValue());
+                    }
+            );
+
+            absent.forEach(key -> {
+                        assertFalse(defaultReader.get(key).isPresent());
+                        assertArrayEquals(defaultReader.getOrElse(key, defaultValue), defaultValue);
+                    }
+            );
+
+            Set<byte[]> existingKeys = existing.stream().map(AbstractMap.SimpleEntry::getKey).collect(Collectors.toSet());
+            Set<byte[]> allKeys = new HashSet<>(existingKeys);
+            allKeys.addAll(absent);
+
+            Map<byte[], Optional<byte[]>> kvs = defaultReader.get(allKeys);
+            assertEquals(kvs.keySet().size(), allKeys.size());
+
+            kvs.forEach((key, valueOpt) -> {
+                if(contains(existingKeys, key)){
+                    assertTrue(
+                            valueOpt.isPresent() &&
+                                    Arrays.equals(valueOpt.get(), get(existing, key))
+                    );
+                } else {
+                    assertTrue(
+                            contains(absent, key) &&
+                                    !valueOpt.isPresent()
+                    );
+                }
+            });
+
+            testIter(defaultReader.getIter(), existing);
+            testRIter(defaultReader.getRIter(), existing);
+            testIter(defaultReader.getIterFrom(existing.get(0).getKey()), existing);
+            testRIter(defaultReader.getRIterFrom(existing.get(existing.size() - 1).getKey()), existing);
         } catch (Exception e) {
             e.printStackTrace();
             return false;

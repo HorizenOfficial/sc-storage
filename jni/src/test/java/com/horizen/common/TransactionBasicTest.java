@@ -1,6 +1,6 @@
 package com.horizen.common;
 
-import com.horizen.common.ColumnFamily;
+import com.horizen.common.interfaces.DefaultTransactionBasic;
 import com.horizen.common.interfaces.Reader;
 import com.horizen.common.interfaces.TransactionBasic;
 
@@ -74,15 +74,31 @@ public class TransactionBasicTest {
     }
 
     public static boolean update(TransactionBasic transaction,
-                              ColumnFamily cf,
-                              ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> kvToInsertList,
-                              Set<byte[]> kToDelete) {
+                                 ColumnFamily cf,
+                                 ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> kvToInsertList,
+                                 Set<byte[]> kToDelete) {
         try {
             HashMap<byte[], byte[]> kvToInsert = new HashMap<>();
             kvToInsertList.forEach(kv -> kvToInsert.put(kv.getKey(), kv.getValue()));
 
             transaction.update(cf, kvToInsert, new HashSet<>());
             transaction.update(cf, new HashMap<>(), kToDelete);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+        return true;
+    }
+
+    public static boolean defaultUpdate(DefaultTransactionBasic transaction,
+                                        ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> kvToInsertList,
+                                        Set<byte[]> kToDelete) {
+        try {
+            HashMap<byte[], byte[]> kvToInsert = new HashMap<>();
+            kvToInsertList.forEach(kv -> kvToInsert.put(kv.getKey(), kv.getValue()));
+
+            transaction.update(kvToInsert, new HashSet<>());
+            transaction.update(new HashMap<>(), kToDelete);
         } catch (Exception e) {
             e.printStackTrace();
             return false;

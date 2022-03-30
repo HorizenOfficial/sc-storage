@@ -2,21 +2,21 @@ package com.horizen.storage;
 
 import com.horizen.common.ColumnFamily;
 import com.horizen.common.DBIterator;
-import com.horizen.common.interfaces.Reader;
-import com.horizen.common.interfaces.TransactionBasic;
+import com.horizen.common.interfaces.*;
 import com.horizen.librust.Library;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-public class Transaction implements Reader, TransactionBasic, AutoCloseable {
+public class Transaction implements DefaultReader, DefaultTransactionBasic, AutoCloseable {
     // Loading the Rust library which contains all the underlying logic
     static {
         Library.load();
     }
 
     private long transactionPointer;
+    final private ColumnFamily defaultCf;
 
     public void checkPointer() throws IllegalStateException {
         if (transactionPointer == 0)
@@ -36,8 +36,9 @@ public class Transaction implements Reader, TransactionBasic, AutoCloseable {
     private native DBIterator nativeGetIter(ColumnFamily cf, int mode, byte[] starting_key, int direction) throws Exception;
 
     // Constructor is intended to be called from inside of the Rust environment for setting a raw pointer to a Rust-instance of Transaction
-    private Transaction(long transactionPointer) {
+    private Transaction(long transactionPointer, long defaultColumnFamilyPointer) {
         this.transactionPointer = transactionPointer;
+        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer);
     }
 
     // Closes transaction (frees Rust memory from Transaction object)
@@ -51,6 +52,10 @@ public class Transaction implements Reader, TransactionBasic, AutoCloseable {
     @Override
     public void close() {
         closeTransaction();
+    }
+
+    public ColumnFamily defaultCf() {
+        return defaultCf;
     }
 
     public Optional<byte[]> get(ColumnFamily cf, byte[] key){

@@ -1,12 +1,13 @@
 use jni::JNIEnv;
 use jni::objects::{JClass, JString, JObject};
 use jni::sys::{jobject, jboolean, jbyteArray, jobjectArray, jint};
-use crate::common::jni::{unwrap_ptr, create_java_object, exception::_throw_inner, unwrap_mut_ptr};
+use crate::common::jni::{unwrap_ptr, exception::_throw_inner, unwrap_mut_ptr, create_storage_java_object, create_transaction_java_object};
 use crate::storage::Storage;
 use crate::storage::transaction::Transaction;
 use crate::common::jni::reader;
 use crate::common::jni::transaction_basic;
 use crate::common::jni::cf_manager;
+use crate::common::storage::{ColumnFamiliesManager, DEFAULT_CF_NAME};
 
 // ------------------------------------- Storage JNI wrappers -------------------------------------
 
@@ -28,7 +29,7 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeOpen(
         Ok(storage) => {
             let storage_class = _env.find_class("com/horizen/storage/Storage")
                 .expect("Should be able to find class Storage");
-            create_java_object(&_env, &storage_class, storage)
+            create_storage_java_object(&_env, &storage_class, storage)
         }
         Err(e) => {
             throw!(
@@ -144,7 +145,10 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeCreateTransaction(
     if let Ok(transaction) = storage.create_transaction(){
         let transaction_class = _env.find_class("com/horizen/storage/Transaction")
             .expect("Should be able to find class Transaction");
-        create_java_object(&_env, &transaction_class, transaction)
+        let default_cf = storage.get_column_family(DEFAULT_CF_NAME)
+            .expect("Should be able to get the default column family");
+
+        create_transaction_java_object(&_env, &transaction_class, transaction, default_cf)
     } else {
         JObject::null().into_inner()
     }
