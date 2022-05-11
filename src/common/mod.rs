@@ -75,7 +75,7 @@ pub trait Reader: InternalReader {
         Some(self.get_internal(key)?.to_vec())
     }
 
-    // Retrieves value for a specified key in a specified column column family from an underlying storage or returns None in case the key is absent
+    // Retrieves value for a specified key in a specified column family from an underlying storage or returns None in case the key is absent
     fn get_cf(&self, cf: &ColumnFamily, key: &[u8]) -> Option<Vec<u8>> {
         Some(self.get_cf_internal(cf, key)?.to_vec())
     }

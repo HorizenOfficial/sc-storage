@@ -24,7 +24,7 @@ public class StorageVersionedTest {
         Optional<TransactionVersioned> transactionEmptyOpt = storage.createTransaction(Optional.empty());
         assertTrue(transactionEmptyOpt.isPresent());
         TransactionVersioned transactionEmpty = transactionEmptyOpt.get();
-        transactionEmpty.commit(Optional.of(versionId));
+        transactionEmpty.commit(versionId);
     }
 
     void testEmptyStorageVersioning(
@@ -223,7 +223,7 @@ public class StorageVersionedTest {
         saveState(storage, emptyVersionId);
         testEmptyStorageVersioning(storage);
 
-        transaction.commit(Optional.of(nonEmptyVersionId));
+        transaction.commit(nonEmptyVersionId);
         testUpdatedStorageVersioning(storage);
 
         // All CFs of the storage are non-empty

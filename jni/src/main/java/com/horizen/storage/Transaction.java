@@ -92,12 +92,12 @@ public class Transaction implements DefaultReader, DefaultTransactionBasic, Auto
         return nativeGetIter(cf, DBIterator.Mode.End, null, 0);
     }
 
-    public DBIterator getIterFrom(ColumnFamily cf, byte[] starting_key) throws Exception {
-        return nativeGetIter(cf, DBIterator.Mode.From, starting_key, DBIterator.Direction.Forward);
+    public DBIterator getIterFrom(ColumnFamily cf, byte[] startingKey) throws Exception {
+        return nativeGetIter(cf, DBIterator.Mode.From, startingKey, DBIterator.Direction.Forward);
     }
 
-    public DBIterator getRIterFrom(ColumnFamily cf, byte[] starting_key) throws Exception {
-        return nativeGetIter(cf, DBIterator.Mode.From, starting_key, DBIterator.Direction.Reverse);
+    public DBIterator getRIterFrom(ColumnFamily cf, byte[] startingKey) throws Exception {
+        return nativeGetIter(cf, DBIterator.Mode.From, startingKey, DBIterator.Direction.Reverse);
     }
 
     public void commit() throws Exception {

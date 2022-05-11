@@ -67,6 +67,8 @@ pub fn unwrap_mut_ptr<'a, T: 'static>(env: &JNIEnv, ptr: JObject) -> &'a mut T {
     read_mut_raw_pointer(get_raw_ptr(env, ptr))
 }
 
+// Creates a wrapping Java-object (this is an object containing a pointer to Rust-object,
+// which is passed as a single parameter to the Java-object's constructor)
 pub fn create_java_object<T>(env: &JNIEnv, class: &JClass, rust_object: T) -> jobject {
     // Wrapping rust_object with a Box and getting a raw pointer as jlong
     let rust_object_ptr: jlong = jlong::from(
@@ -78,6 +80,9 @@ pub fn create_java_object<T>(env: &JNIEnv, class: &JClass, rust_object: T) -> jo
         .into_inner()
 }
 
+// Creates a Transaction/TransactionVersioned Java-object when a transaction is created for Storage/StorageVersioned
+// NOTE: Transaction/TransactionVersioned on the Java side need to have the Default ColumnFamily descriptor,
+//       so the supplied Default CF is passed as a 2-nd argument to the Transaction/TransactionVersioned Java-constructor
 pub fn create_transaction_java_object<T>(env: &JNIEnv, class: &JClass, transaction_object: T, default_cf_ref: &ColumnFamily) -> jobject {
     // Wrapping transaction_object with a Box and getting a raw pointer as jlong
     let transaction_object_ptr: jlong = jlong::from(
@@ -94,6 +99,12 @@ pub fn create_transaction_java_object<T>(env: &JNIEnv, class: &JClass, transacti
         .into_inner()
 }
 
+// Creates a TransactionVersioned Java-object when a transaction is created for a previous version of StorageVersioned
+// NOTE: when TransactionVersioned is created for some previous version of a StorageVersioned,
+//       it contains a separately opened instance of the RocksDB thus the Default ColumnFamily (as well as all other CFs)
+//       should be retrieved for this DB instance, not for the DB instance residing in StorageVersioned.
+//       So the Default CF descriptor is retrieved with the 'get_column_family' of the TransactionVersioned API
+//       instead of using the externally supplied Default CF of StorageVersioned.
 pub fn create_transaction_versioned_java_object(env: &JNIEnv, class: &JClass, transaction_object: TransactionVersioned) -> jobject {
     // Wrapping transaction_object with a Box and getting a raw pointer as jlong
     let transaction_object_ptr: jlong = jlong::from(
@@ -114,6 +125,9 @@ pub fn create_transaction_versioned_java_object(env: &JNIEnv, class: &JClass, tr
         .into_inner()
 }
 
+// Creates a Storage/StorageVersioned Java-object
+// NOTE: Storage and StorageVersioned on the Java side need to have the Default ColumnFamily descriptor,
+//       so it is passed as a 2-nd argument to the Storage/StorageVersioned Java-constructor
 pub fn create_storage_java_object<T: ColumnFamiliesManager>(env: &JNIEnv, class: &JClass, storage_object: T) -> jobject {
     // Wrapping storage_object with a Box and getting a raw pointer as jlong
     let storage_object_ptr: jlong = jlong::from(
@@ -134,7 +148,7 @@ pub fn create_storage_java_object<T: ColumnFamiliesManager>(env: &JNIEnv, class:
         .into_inner()
 }
 
-
+// Creates a ColumnFamily Java-object
 pub fn create_cf_java_object(env: &JNIEnv, cf_ref: &ColumnFamily) -> jobject {
     let column_family_class = env.find_class("com/horizen/common/ColumnFamily")
         .expect("Should be able to find class ColumnFamily");
@@ -184,7 +198,7 @@ pub fn create_jentry(_env: &JNIEnv, key: &[u8], value: &[u8]) -> jobject {
     jentry.into_inner()
 }
 
-// Converts HashMap<Vec<u8>, Option<Vec<u8>>> to HashMap<byte[], Optional<byte[]>>
+// Converts HashMap<Vec<u8>, Option<Vec<u8>>> to Java HashMap<byte[], Optional<byte[]>>
 pub fn map_to_java_map(_env: &JNIEnv, hash_map: &HashMap<Vec<u8>, Option<Vec<u8>>>) -> jobject {
     let hash_map_class = _env
         .find_class("java/util/HashMap")
@@ -267,7 +281,7 @@ pub fn java_map_to_vec_byte(_env: &JNIEnv, _map: JObject) -> Option<Vec<(Vec<u8>
     }
 }
 
-// Converts byte[][] to Vec<Vec<u8>>
+// Converts Java byte[][] to Vec<Vec<u8>>
 pub fn java_array_to_vec_byte(_env: &JNIEnv, java_array: jobjectArray) -> Vec<Vec<u8>> {
     let java_array_size = _env
         .get_array_length(java_array)

@@ -43,6 +43,10 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
     private native String[] nativeRollbackVersions() throws Exception;
     private native String nativeLastVersion() throws Exception;
 
+    // Opens a storage located by a specified 'storagePath' or creates a new one if the directory by a specified path doesn't exist and the 'create_if_missing' flag is true
+    // The 'versionsStored' parameter specifies how many latest versions (0 or more) should be stored for a storage.
+    // If at the moment of opening of an existing storage there are more saved versions than 'versions_stored' specifies, then the oldest versions will be removed.
+    // Returns StorageVersioned instance or throws Exception with a describing message if some error occurred
     public static StorageVersioned open(String storagePath, boolean createIfMissing, int versionsStored) throws Exception {
         return nativeOpen(storagePath, createIfMissing, versionsStored);
     }
@@ -65,10 +69,13 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
         closeStorage();
     }
 
+    // Returns the default column family
     public ColumnFamily defaultCf() {
         return defaultCf;
     }
 
+    // Retrieves a value for a specified key in a specified column family
+    // from an underlying storage or returns Optional.empty() in case the key is absent
     public Optional<byte[]> get(ColumnFamily cf, byte[] key){
         checkPointer();
         byte[] value = nativeGet(cf, key);
@@ -79,20 +86,29 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
         }
     }
 
+    // Retrieves Key-Value pairs for a specified list of keys in a specified column family from an underlying storage.
+    // For the absent keys the values in corresponding Key-Value pairs are Optional.empty()
     public Map<byte[], Optional<byte[]>> get(ColumnFamily cf, Set<byte[]> keys){
         checkPointer();
         return nativeMultiGet(cf, keys.toArray(new byte[0][0]));
     }
 
+    // Retrieves a value for a specified key in a specified column family
+    // from an underlying storage or returns 'defaultValue' in case the key is absent
     public byte[] getOrElse(ColumnFamily cf, byte[] key, byte[] defaultValue){
         return get(cf, key).orElse(defaultValue);
     }
 
+    // Checks whether an underlying storage contains any Key-Value pairs in a specified column family
     public boolean isEmpty(ColumnFamily cf) {
         checkPointer();
         return nativeIsEmpty(cf);
     }
 
+    // Creates a transaction for a specified previous version of the storage in 'versionIdOpt',
+    // or for a current state of the storage if 'versionIdOpt' is 'Optional.empty().
+    // Returns Optional.of(TransactionVersioned) when transaction is created
+    // or 'Optional.empty()' if transaction can't be created
     public Optional<TransactionVersioned> createTransaction(Optional<String> versionIdOpt){
         checkPointer();
         String versionId = null;
@@ -107,24 +123,34 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
         }
     }
 
+    // Returns forward iterator for all contained keys in a specified column family in an underlying storage
+    // Throws Exception with error message if any error occurred
     public DBIterator getIter(ColumnFamily cf) throws Exception {
         // The 'starting_key', and 'direction' parameters are ignored for the 'Start' mode
         return nativeGetIter(cf, DBIterator.Mode.Start, null, 0);
     }
 
+    // Returns reverse iterator for all contained keys in a specified column family in an underlying storage
+    // Throws Exception with error message if any error occurred
     public DBIterator getRIter(ColumnFamily cf) throws Exception {
         // The 'starting_key', and 'direction' parameters are ignored for the 'End' mode
         return nativeGetIter(cf, DBIterator.Mode.End, null, 0);
     }
 
-    public DBIterator getIterFrom(ColumnFamily cf, byte[] starting_key) throws Exception {
-        return nativeGetIter(cf, DBIterator.Mode.From, starting_key, DBIterator.Direction.Forward);
+    // Returns forward iterator starting from a specified key for all contained keys in a specified column family in an underlying storage
+    // Throws Exception with error message if any error occurred
+    public DBIterator getIterFrom(ColumnFamily cf, byte[] startingKey) throws Exception {
+        return nativeGetIter(cf, DBIterator.Mode.From, startingKey, DBIterator.Direction.Forward);
     }
 
-    public DBIterator getRIterFrom(ColumnFamily cf, byte[] starting_key) throws Exception {
-        return nativeGetIter(cf, DBIterator.Mode.From, starting_key, DBIterator.Direction.Reverse);
+    // Returns reverse iterator starting from a specified key for all contained keys in a specified column family in an underlying storage
+    // Throws Exception with error message if any error occurred
+    public DBIterator getRIterFrom(ColumnFamily cf, byte[] startingKey) throws Exception {
+        return nativeGetIter(cf, DBIterator.Mode.From, startingKey, DBIterator.Direction.Reverse);
     }
 
+    // Returns a handle for a specified column family name
+    // Returns Optional.empty() if column family with a specified name is absent in storage
     public Optional<ColumnFamily> getColumnFamily(String cf_name){
         checkPointer();
         ColumnFamily cf = nativeGetColumnFamily(cf_name);
@@ -135,11 +161,17 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
         }
     }
 
+    // Creates column family with a specified name
+    // Successfully returns if column family was created successfully or already exists
+    // Throws Exception with describing message if any error occurred during column family creation
     public void setColumnFamily(String cf_name) throws Exception {
         checkPointer();
         nativeSetColumnFamily(cf_name);
     }
 
+    // Rollbacks current state of the storage to a specified with 'version_id' previous version.
+    // All saved versions after the 'version_id' are deleted if rollback is successful.
+    // Throws Exception with error message if some error occurs
     public void rollback(String version_id) throws Exception {
         checkPointer();
         nativeRollback(version_id);
@@ -149,11 +181,15 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
         defaultCf = getColumnFamily(DEFAULT_CF_NAME).get();
     }
 
+    // Returns a sorted by creation order list of all existing versions' IDs
+    // Throws Exception with error message if some error occurs
     public List<String> rollbackVersions() throws Exception {
         checkPointer();
         return new ArrayList<>(Arrays.asList(nativeRollbackVersions()));
     }
 
+    // Returns ID of the most recent version among all saved versions of the storage
+    // Throws Exception with error message if some error occurs
     public Optional<String> lastVersion() throws Exception {
         checkPointer();
         String lastVersion = nativeLastVersion();

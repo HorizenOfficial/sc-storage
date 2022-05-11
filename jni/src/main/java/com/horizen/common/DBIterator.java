@@ -7,12 +7,13 @@ import java.util.Optional;
 
 public class DBIterator implements AutoCloseable {
 
+    // Constants specifying the Mode and the Direction of DBIterator which should be the same as on the Rust side of JNI
+    // in 'sc_storage/src/common/jni/iterator.rs'
     public static class Mode {
         public static int Start = 0;
         public static int End = 1;
         public static int From = 2;
     }
-
     public static class Direction {
         public static int Forward = 0;
         public static int Reverse = 1;
@@ -38,7 +39,7 @@ public class DBIterator implements AutoCloseable {
     private static native void nativeClose(long dbIteratorPointer);
     private native AbstractMap.SimpleEntry<byte[], byte[]> nativeNext();
 
-    // Closes storage (frees Rust memory from DBIterator object)
+    // Closes a storage (frees Rust memory from DBIterator object)
     public void closeDBIterator() {
         if (dbIteratorPointer != 0) {
             nativeClose(this.dbIteratorPointer);
@@ -51,6 +52,7 @@ public class DBIterator implements AutoCloseable {
         closeDBIterator();
     }
 
+    // Returns a next Key-Value entry or Optional.empty() if there are no more entries
     public Optional<AbstractMap.SimpleEntry<byte[], byte[]>> next(){
         checkPointer();
         AbstractMap.SimpleEntry<byte[], byte[]> kv = nativeNext();
