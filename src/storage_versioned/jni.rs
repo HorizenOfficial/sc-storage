@@ -318,16 +318,15 @@ pub extern "system" fn Java_com_horizen_storageVersioned_TransactionVersioned_na
 {
     let transaction = unwrap_ptr::<TransactionVersioned>(&_env, _transaction);
 
-    let cf_name = _env
-        .get_string(_cf_name)
+    let jcf_name = _env.get_string(_cf_name)
         .expect("Should be able to read _cf_name jstring as JavaStr");
+    let cf_name = jcf_name.to_str()
+        .expect("Should be able to convert the cf_name to Rust String");
 
-    match transaction.get_column_family(
-        cf_name.to_str()
-            .expect("Should be able to convert the cf_name to Rust String")){
+    match transaction.get_column_family(cf_name){
         Ok(cf_opt) => {
             if let Some(cf_ref) = cf_opt {
-                create_cf_java_object(&_env, cf_ref)
+                create_cf_java_object(&_env, cf_ref, cf_name)
             } else {
                 JObject::null().into_inner()
             }

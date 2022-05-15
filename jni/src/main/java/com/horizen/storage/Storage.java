@@ -27,7 +27,7 @@ public class Storage implements DefaultReader, ColumnFamilyManager, AutoCloseabl
     // Constructor is intended to be called from inside the Rust environment for setting a raw pointer to a Rust-instance of Storage
     private Storage(long storagePointer, long defaultColumnFamilyPointer) {
         this.storagePointer = storagePointer;
-        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer);
+        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer, DEFAULT_CF_NAME);
     }
 
     // Gates to the Rust-side API

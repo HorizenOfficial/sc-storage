@@ -25,7 +25,7 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
     // Constructor is intended to be called from inside the Rust environment for setting a raw pointer to a Rust-instance of Storage
     private StorageVersioned(long storageVersionedPointer, long defaultColumnFamilyPointer) {
         this.storageVersionedPointer = storageVersionedPointer;
-        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer);
+        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer, DEFAULT_CF_NAME);
     }
 
     // Gates to the Rust-side API

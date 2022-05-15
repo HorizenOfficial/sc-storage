@@ -31,16 +31,13 @@ pub(crate) fn get_column_family(
     _cf_name: JString
 ) -> jobject
 {
-    let cf_name = _env
-        .get_string(_cf_name)
+    let jcf_name = _env.get_string(_cf_name)
         .expect("Should be able to read _cf_name jstring as JavaStr");
+    let cf_name = jcf_name.to_str()
+        .expect("Should be able to convert the cf_name to Rust String");
 
-    if let Some(cf_ref) =
-        cf_manager.get_column_family(
-            cf_name.to_str()
-                .expect("Should be able to convert the cf_name to Rust String"))
-    {
-        create_cf_java_object(&_env, cf_ref)
+    if let Some(cf_ref) = cf_manager.get_column_family(cf_name) {
+        create_cf_java_object(&_env, cf_ref, cf_name)
     } else {
         JObject::null().into_inner()
     }

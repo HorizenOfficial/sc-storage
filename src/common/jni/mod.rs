@@ -149,15 +149,20 @@ pub fn create_storage_java_object<T: ColumnFamiliesManager>(env: &JNIEnv, class:
 }
 
 // Creates a ColumnFamily Java-object
-pub fn create_cf_java_object(env: &JNIEnv, cf_ref: &ColumnFamily) -> jobject {
+pub fn create_cf_java_object(env: &JNIEnv, cf_ref: &ColumnFamily, cf_name: &str) -> jobject {
     let column_family_class = env.find_class("com/horizen/common/ColumnFamily")
         .expect("Should be able to find class ColumnFamily");
     // Converting the cf_ref into a raw pointer then converting the raw pointer into jlong
     let column_family_ptr: jlong = jlong::from(
         cf_ref as *const ColumnFamily as i64
     );
+    let cf_name_string = env.new_string(cf_name)
+        .expect("Should be able to create String for CF name");
+
     // Create and return new Java-ColumnFamily
-    env.new_object(column_family_class, "(J)V", &[JValue::Long(column_family_ptr)])
+    env.new_object(column_family_class,
+                   "(JLjava/lang/String;)V",
+                   &[JValue::Long(column_family_ptr), cf_name_string.into()])
        .expect("Should be able to create ColumnFamily Java-object")
        .into_inner()
 }

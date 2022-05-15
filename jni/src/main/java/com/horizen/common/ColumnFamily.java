@@ -11,10 +11,12 @@ public class ColumnFamily {
     }
 
     private final long columnFamilyPointer;
+    public final String name;
 
     // Constructor is intended to be called from inside the Rust environment for setting a raw pointer to a Rust-instance of ColumnFamily
-    public ColumnFamily(long columnFamilyPointer) {
+    public ColumnFamily(long columnFamilyPointer, String cf_name) {
         this.columnFamilyPointer = columnFamilyPointer;
+        this.name = cf_name;
     }
     public boolean equals(ColumnFamily that){
         return (this.columnFamilyPointer == that.columnFamilyPointer);

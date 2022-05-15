@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.horizen.common.interfaces.ColumnFamilyManager.DEFAULT_CF_NAME;
+
 public class Transaction implements DefaultReader, DefaultTransactionBasic, AutoCloseable {
     // Loading the Rust library which contains all the underlying logic
     static {
@@ -38,7 +40,7 @@ public class Transaction implements DefaultReader, DefaultTransactionBasic, Auto
     // Constructor is intended to be called from inside of the Rust environment for setting a raw pointer to a Rust-instance of Transaction
     private Transaction(long transactionPointer, long defaultColumnFamilyPointer) {
         this.transactionPointer = transactionPointer;
-        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer);
+        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer, DEFAULT_CF_NAME);
     }
 
     // Closes transaction (frees Rust memory from Transaction object)

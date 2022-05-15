@@ -10,6 +10,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.horizen.common.interfaces.ColumnFamilyManager.DEFAULT_CF_NAME;
+
 public class TransactionVersioned implements DefaultReader, DefaultTransactionBasic, AutoCloseable {
 
     // Loading the Rust library which contains all the underlying logic
@@ -41,7 +43,7 @@ public class TransactionVersioned implements DefaultReader, DefaultTransactionBa
     // Constructor is intended to be called from inside the Rust environment for setting a raw pointer to a Rust-instance of Transaction
     private TransactionVersioned(long transactionVersionedPointer, long defaultColumnFamilyPointer) {
         this.transactionVersionedPointer = transactionVersionedPointer;
-        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer);
+        this.defaultCf = new ColumnFamily(defaultColumnFamilyPointer, DEFAULT_CF_NAME);
     }
 
     // Closes transaction (frees Rust memory from Transaction object)
