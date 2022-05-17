@@ -21,10 +21,7 @@ public class StorageVersionedTest {
     private final static String nonEmptyVersionId = "v1";
 
     void saveState(StorageVersioned storage, String versionId) throws Exception {
-        Optional<TransactionVersioned> transactionEmptyOpt = storage.createTransaction(Optional.empty());
-        assertTrue(transactionEmptyOpt.isPresent());
-        TransactionVersioned transactionEmpty = transactionEmptyOpt.get();
-        transactionEmpty.commit(versionId);
+        storage.createTransaction(Optional.empty()).commit(versionId);
     }
 
     void testEmptyStorageVersioning(
@@ -62,7 +59,7 @@ public class StorageVersionedTest {
     void testVersionsImages(
             StorageVersioned storage,
             TransactionBasicTest.TestData testData
-    ) {
+    ) throws Exception {
         Function<TransactionVersioned, List<ColumnFamily>> getCFs =
                 transaction ->
                         ColumnFamilyManagerTest.cfNames.stream().map(cfName -> {
@@ -76,18 +73,14 @@ public class StorageVersionedTest {
                             return cfOpt.get();
                         }).collect(Collectors.toList());
 
-        Optional<TransactionVersioned> transactionEmptyOpt = storage.createTransaction(Optional.of(emptyVersionId));
-        assertTrue(transactionEmptyOpt.isPresent());
-        TransactionVersioned transactionEmpty = transactionEmptyOpt.get();
+        TransactionVersioned transactionEmpty = storage.createTransaction(Optional.of(emptyVersionId));
         // Transaction created for a specified version of a storage has its own CFs
         List<ColumnFamily> emptyCFs = getCFs.apply(transactionEmpty);
         // All CFs of an empty version of the storage are empty
         emptyCFs.forEach(cf -> assertTrue(transactionEmpty.isEmpty(cf)));
         assertTrue(transactionEmpty.isEmpty());
 
-        Optional<TransactionVersioned> transactionNonEmptyOpt = storage.createTransaction(Optional.of(nonEmptyVersionId));
-        assertTrue(transactionNonEmptyOpt.isPresent());
-        TransactionVersioned transactionNonEmpty = transactionNonEmptyOpt.get();
+        TransactionVersioned transactionNonEmpty = storage.createTransaction(Optional.of(nonEmptyVersionId));
         // Transaction created for a specified version of a storage has its own CFs
         List<ColumnFamily> nonEmptyCFs = getCFs.apply(transactionNonEmpty);
         // All CFs of a non-empty version of the storage are non-empty
@@ -168,9 +161,7 @@ public class StorageVersionedTest {
 
         ColumnFamilyManagerTest.TestCFs testCFs = ColumnFamilyManagerTest.initialize(storage);
 
-        Optional<TransactionVersioned> transactionOpt = storage.createTransaction(Optional.empty());
-        assertTrue(transactionOpt.isPresent());
-        TransactionVersioned transaction = transactionOpt.get();
+        TransactionVersioned transaction = storage.createTransaction(Optional.empty());
 
         // The Default CF value inside the transaction is the same as the retrieved one with 'getColumnFamily' method of the Storage
         assertTrue(testCFs.defaultCf.equals(transaction.defaultCf()));

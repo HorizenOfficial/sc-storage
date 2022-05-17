@@ -39,9 +39,7 @@ public class StorageTest {
 
         ColumnFamilyManagerTest.TestCFs testCFs = ColumnFamilyManagerTest.initialize(storage);
 
-        Optional<Transaction> transactionOpt = storage.createTransaction();
-        assertTrue(transactionOpt.isPresent());
-        Transaction transaction = transactionOpt.get();
+        Transaction transaction = storage.createTransaction();
 
         // The Default CF value inside the transaction is the same as the retrieved one with 'getColumnFamily' method of the Storage
         assertTrue(testCFs.defaultCf.equals(transaction.defaultCf()));

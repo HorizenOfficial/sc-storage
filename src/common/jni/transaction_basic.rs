@@ -1,41 +1,60 @@
-
+use itertools::Itertools;
 use jni::objects::JObject;
 use jni::JNIEnv;
-use jni::sys::jobjectArray;
 use rocksdb::ColumnFamily;
-use crate::common::jni::{unwrap_ptr, java_map_to_vec_byte, java_array_to_vec_byte, exception::_throw_inner};
+use crate::common::jni::{unwrap_ptr, exception::_throw_inner, java_list_to_vec_byte};
 use crate::common::transaction::TransactionBasic;
 
 pub(crate) fn update(
     transaction: &dyn TransactionBasic,
     _env: JNIEnv,
-    _cf: JObject,
-    _to_update: JObject,      // Map<byte[], byte[]>
-    _to_delete: jobjectArray  // byte[][]
+    _cf:  JObject,
+    _keys_to_update:   JObject, // List<byte[]>
+    _values_to_update: JObject, // List<byte[]>
+    _keys_to_delete:   JObject  // List<byte[]>
 ){
     let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
 
-    if let Some(to_update) = java_map_to_vec_byte(&_env, _to_update){
-        let to_delete = java_array_to_vec_byte(&_env, _to_delete);
-
-        match transaction.update_cf(
-            cf,
-            &to_update.iter().map(|kv| (kv.0.as_slice(), kv.1.as_slice())).collect(),
-            &to_delete.iter().map(|k| k.as_slice()).collect()
-        ) {
-            Ok(()) => {}
-            Err(e) => {
+    if let Some(keys_to_update) = java_list_to_vec_byte(&_env, _keys_to_update){
+        if let Some(values_to_update) = java_list_to_vec_byte(&_env, _values_to_update){
+            if keys_to_update.len() != values_to_update.len(){
                 throw!(
                     &_env, "java/lang/Exception",
-                    format!("Cannot update column family of the transaction: {:?}", e).as_str()
+                    "List of Keys to update should be of the same length as the list of Values"
                 )
             }
+            if let Some(keys_to_delete) = java_list_to_vec_byte(&_env, _keys_to_delete){
+                let to_update_map = keys_to_update.iter().zip(values_to_update).collect_vec();
+                match transaction.update_cf(
+                    cf,
+                    &to_update_map.iter().map(|kv| (kv.0.as_slice(), kv.1.as_slice())).collect(),
+                    &keys_to_delete.iter().map(|k| k.as_slice()).collect()
+                ) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        throw!(
+                            &_env, "java/lang/Exception",
+                            format!("Cannot update column family of the transaction: {:?}", e).as_str()
+                        )
+                    }
+                }
+            } else {
+                throw!(
+                    &_env, "java/lang/Exception",
+                    format!("Cannot convert Java list of keys to delete to a Rust vector").as_str()
+                )
+            }
+        } else {
+            throw!(
+                &_env, "java/lang/Exception",
+                format!("Cannot convert Java list of values to a Rust vector").as_str()
+            )
         }
     } else {
         throw!(
-                &_env, "java/lang/Exception",
-                format!("nativeUpdate: Cannot convert java map to a vector of pairs").as_str()
-            )
+            &_env, "java/lang/Exception",
+            format!("Cannot convert Java list of keys to a Rust vector").as_str()
+        )
     }
 }
 

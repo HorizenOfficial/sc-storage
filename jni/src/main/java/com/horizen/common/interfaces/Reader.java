@@ -3,9 +3,8 @@ package com.horizen.common.interfaces;
 import com.horizen.common.ColumnFamily;
 import com.horizen.common.DBIterator;
 
-import java.util.Map;
+import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 // Interface for retrieving content from Storage/StorageVersioned and Transaction/TransactionVersioned
 public interface Reader {
@@ -14,9 +13,9 @@ public interface Reader {
     // from an underlying storage or returns Optional.empty() in case the key is absent
     Optional<byte[]> get(ColumnFamily cf, byte[] key);
 
-    // Retrieves Key-Value pairs for a specified list of keys in a specified column family from an underlying storage.
-    // For the absent keys the values in corresponding Key-Value pairs are Optional.empty()
-    Map<byte[], Optional<byte[]>> get(ColumnFamily cf,  Set<byte[]> keys);
+    // Retrieves the values correspondingly to a specified list of keys in a specified column family from an underlying storage.
+    // For the absent keys the values in the corresponding positions are null
+    List<byte[]> get(ColumnFamily cf, List<byte[]> keys);
 
     // Retrieves a value for a specified key in a specified column family
     // from an underlying storage or returns 'defaultValue' in case the key is absent

@@ -6,9 +6,8 @@ import com.horizen.common.interfaces.DefaultReader;
 import com.horizen.common.interfaces.DefaultTransactionBasic;
 import com.horizen.librust.Library;
 
-import java.util.Map;
+import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.horizen.common.interfaces.ColumnFamilyManager.DEFAULT_CF_NAME;
 
@@ -29,11 +28,12 @@ public class TransactionVersioned implements DefaultReader, DefaultTransactionBa
 
     // Gates to the Rust-side API
     private static native void nativeClose(long transactionPointer);
+
     private native byte[] nativeGet(ColumnFamily cf, byte[] key);
-    private native Map<byte[], Optional<byte[]>> nativeMultiGet(ColumnFamily cf, byte[][] keys);
+    private native List<byte[]> nativeMultiGet(ColumnFamily cf, List<byte[]> keys);
     private native boolean nativeIsEmpty(ColumnFamily cf);
     private native void nativeCommit(String versionId) throws Exception;
-    private native void nativeUpdate(ColumnFamily cf, Map<byte[], byte[]> toUpdate, byte[][] toDelete) throws Exception;
+    private native void nativeUpdate(ColumnFamily cf, List<byte[]> keysToUpdate, List<byte[]> valuesToUpdate, List<byte[]> keysToDelete) throws Exception;
     private native void nativeSave() throws Exception;
     private native void nativeRollbackToSavepoint() throws Exception;
     private native void nativeRollback() throws Exception;
@@ -76,11 +76,11 @@ public class TransactionVersioned implements DefaultReader, DefaultTransactionBa
         }
     }
 
-    // Retrieves Key-Value pairs for a specified list of keys in a specified column family.
-    // For the absent keys the values in corresponding Key-Value pairs are Optional.empty()
-    public Map<byte[], Optional<byte[]>> get(ColumnFamily cf, Set<byte[]> keys){
+    // Retrieves the values correspondingly to a specified list of keys in a specified column family
+    // For the absent keys the values in the corresponding positions are null
+    public List<byte[]> get(ColumnFamily cf, List<byte[]> keys){
         checkPointer();
-        return nativeMultiGet(cf, keys.toArray(new byte[0][0]));
+        return nativeMultiGet(cf, keys);
     }
 
     // Retrieves a value for a specified key in a specified column family
@@ -131,12 +131,12 @@ public class TransactionVersioned implements DefaultReader, DefaultTransactionBa
         nativeCommit(versionId);
     }
 
-    // Performs the specified insertions ('toUpdate' vector of Key-Values) and removals ('toDelete' vector of Keys)
-    // for a specified column family 'cf' in a current transaction
+    // Performs the specified insertions ('keysToUpdate' and 'valuesToUpdate' vectors of Keys and corresponding to them Values)
+    // and removals ('keysToDelete' vector of Keys) for a specified column family 'cf' in a current transaction
     // Throws Exception with error message if any error occurred
-    public void update(ColumnFamily cf, Map<byte[], byte[]> toUpdate, Set<byte[]> toDelete) throws Exception {
+    public void update(ColumnFamily cf, List<byte[]> keysToUpdate, List<byte[]> valuesToUpdate, List<byte[]> keysToDelete) throws Exception {
         checkPointer();
-        nativeUpdate(cf, toUpdate, toDelete.toArray(new byte[0][0]));
+        nativeUpdate(cf, keysToUpdate, valuesToUpdate, keysToDelete);
     }
 
     // Saves the current state of a transaction to which it can be rolled back later

@@ -1,6 +1,6 @@
 use jni::JNIEnv;
 use jni::objects::{JClass, JString, JObject};
-use jni::sys::{jobject, jboolean, jbyteArray, jobjectArray, jint};
+use jni::sys::{jobject, jboolean, jbyteArray, jint};
 use crate::common::jni::{unwrap_ptr, exception::_throw_inner, unwrap_mut_ptr, create_storage_java_object, create_transaction_java_object};
 use crate::storage::Storage;
 use crate::storage::transaction::Transaction;
@@ -71,7 +71,7 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeMultiGet(
     _env: JNIEnv,
     _storage: JObject,
     _cf: JObject,
-    _keys: jobjectArray
+    _keys: JObject
 ) -> jobject
 {
     reader::multi_get(
@@ -142,16 +142,33 @@ pub extern "system" fn Java_com_horizen_storage_Storage_nativeCreateTransaction(
 {
     let storage = unwrap_ptr::<Storage>(&_env, _storage);
 
-    if let Ok(transaction) = storage.create_transaction(){
-        let transaction_class = _env.find_class("com/horizen/storage/Transaction")
-            .expect("Should be able to find class Transaction");
-        let default_cf = storage.get_column_family(DEFAULT_CF_NAME)
-            .expect("Should be able to get the default column family");
+    match storage.create_transaction() {
+        Ok(transaction) => {
+            let transaction_class = _env.find_class("com/horizen/storage/Transaction")
+                .expect("Should be able to find class Transaction");
+            let default_cf = storage.get_column_family(DEFAULT_CF_NAME)
+                .expect("Should be able to get the default column family");
 
-        create_transaction_java_object(&_env, &transaction_class, transaction, default_cf)
-    } else {
-        JObject::null().into_inner()
+            create_transaction_java_object(&_env, &transaction_class, transaction, default_cf)
+        }
+        Err(e) => {
+            throw!(
+                &_env, "java/lang/Exception",
+                format!("Cannot create the transaction: {:?}", e).as_str(),
+                JObject::null().into_inner()
+            )
+        }
     }
+    // if let Ok(transaction) = storage.create_transaction(){
+    //     let transaction_class = _env.find_class("com/horizen/storage/Transaction")
+    //         .expect("Should be able to find class Transaction");
+    //     let default_cf = storage.get_column_family(DEFAULT_CF_NAME)
+    //         .expect("Should be able to get the default column family");
+    //
+    //     create_transaction_java_object(&_env, &transaction_class, transaction, default_cf)
+    // } else {
+    //     JObject::null().into_inner()
+    // }
 }
 
 // ------------------------------------- Transaction JNI wrappers -------------------------------------
@@ -203,7 +220,7 @@ pub extern "system" fn Java_com_horizen_storage_Transaction_nativeMultiGet(
     _env: JNIEnv,
     _transaction: JObject,
     _cf: JObject,
-    _keys: jobjectArray
+    _keys: JObject
 ) -> jobject
 {
     reader::multi_get(
@@ -246,12 +263,13 @@ pub extern "system" fn Java_com_horizen_storage_Transaction_nativeUpdate(
     _env: JNIEnv,
     _transaction: JObject,
     _cf: JObject,
-    _to_update: JObject,      // Map<byte[], byte[]>
-    _to_delete: jobjectArray  // byte[][]
+    _keys_to_update:   JObject, // List<byte[]>
+    _values_to_update: JObject, // List<byte[]>
+    _keys_to_delete:   JObject  // List<byte[]>
 ){
     transaction_basic::update(
         unwrap_ptr::<Transaction>(&_env, _transaction),
-        _env, _cf, _to_update, _to_delete
+        _env, _cf, _keys_to_update, _values_to_update, _keys_to_delete
     )
 }
 

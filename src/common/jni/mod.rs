@@ -1,5 +1,5 @@
 use jni::JNIEnv;
-use jni::objects::{JObject, JClass, JValue, JMap};
+use jni::objects::{JObject, JClass, JValue, JList};
 use std::any::TypeId;
 use crate::storage::Storage;
 use rocksdb::{ColumnFamily, DBIterator};
@@ -7,6 +7,7 @@ use crate::storage::transaction::Transaction;
 use std::collections::HashMap;
 use jni::sys::{jobject, jlong, jobjectArray};
 use jni::signature::JavaType;
+use jni::signature::Primitive::Boolean;
 use crate::common::storage::{ColumnFamiliesManager, DEFAULT_CF_NAME};
 use crate::storage_versioned::StorageVersioned;
 use crate::storage_versioned::transaction_versioned::TransactionVersioned;
@@ -203,79 +204,49 @@ pub fn create_jentry(_env: &JNIEnv, key: &[u8], value: &[u8]) -> jobject {
     jentry.into_inner()
 }
 
-// Converts HashMap<Vec<u8>, Option<Vec<u8>>> to Java HashMap<byte[], Optional<byte[]>>
-pub fn map_to_java_map(_env: &JNIEnv, hash_map: &HashMap<Vec<u8>, Option<Vec<u8>>>) -> jobject {
-    let hash_map_class = _env
-        .find_class("java/util/HashMap")
-        .expect("Should be able to find HashMap class");
+// Converts HashMap<Vec<u8>, Option<Vec<u8>>> to Java List<byte[]>> of values in the same order as the 'keys' are given
+pub fn map_to_java_list_of_values(_env: &JNIEnv, keys: &Vec<Vec<u8>>, keys_map: &HashMap<Vec<u8>, Option<Vec<u8>>>) -> jobject {
+    let array_list_class = _env
+        .find_class("java/util/ArrayList")
+        .expect("Should be able to find ArrayList class");
 
-    let jhash_map = _env
-        .new_object(hash_map_class, "()V", &[])
-        .expect("Should be able to create HashMap object");
+    let jlist = _env
+        .new_object(array_list_class, "()V", &[])
+        .expect("Should be able to create ArrayList object");
 
-    let put = _env.get_method_id(
-        hash_map_class,
-        "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;\
-             )Ljava/lang/Object;",
-    ).expect("Should be able to get the 'put' method ID of HashMap object");
+    let add = _env.get_method_id(
+        array_list_class,
+        "add",
+        "(Ljava/lang/Object;)Z",
+    ).expect("Should be able to get the 'add' method ID of ArrayList object");
 
-    let otional_class = _env
-        .find_class("java/util/Optional")
-        .expect("Should be able to find Optional class");
-
-    hash_map.iter().for_each(|kv|{
-        let jkey = _env
-            .byte_array_from_slice(kv.0.as_slice())
-            .expect("Cannot write Key to jbyteArray");
-
-        let jvalue_opt = {
-            if let Some(value) = kv.1 {
-                let jvalue = _env
-                    .byte_array_from_slice(value.as_slice())
-                    .expect("Cannot write Value to jbyteArray");
-
-                _env.call_static_method(
-                    otional_class,
-                    "of",
-                    "(Ljava/lang/Object;)Ljava/util/Optional;",
-                    &[JValue::from(jvalue)],
-                ).expect("Should be able to create new value for Optional")
-            } else { // None
-                _env.call_static_method(
-                    otional_class,
-                    "empty",
-                    "()Ljava/util/Optional;",
-                    &[]
-                ).expect("Should be able to create empty value for Optional.empty()")
-            }
-        };
-
+    keys.iter().for_each(|key|{
+        let jvalue =
+            if let Some(value) = keys_map.get(key).expect("Key should exist in a given keys_map"){
+                _env.byte_array_from_slice(value.as_slice())
+                    .expect("Cannot convert Value to jbyteArray")
+            } else {
+                JObject::null().into_inner()
+            };
         _env.call_method_unchecked(
-            jhash_map,
-            put,
-            JavaType::Object("java/lang/Object".into()),
-            vec![JValue::from(jkey), jvalue_opt].as_slice()
-        ).expect("Should be able to call the 'put' method of HashMap object");
+            jlist,
+            add,
+            JavaType::Primitive(Boolean),
+            vec![JValue::from(jvalue)].as_slice()
+        ).expect("Should be able to call the 'add' method of ArrayList object");
     });
 
-    jhash_map.into_inner()
+    jlist.into_inner()
 }
 
-// Converts Map<byte[], byte[]> to Vec<(Vec<u8>, Vec<u8>)>
-pub fn java_map_to_vec_byte(_env: &JNIEnv, _map: JObject) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-    if let Ok(to_update_jmap) = JMap::from_env(&_env, _map){
-        if let Ok(iter) = to_update_jmap.iter(){
+// Converts List<byte[]> to Vec<Vec<u8>>
+pub fn java_list_to_vec_byte(_env: &JNIEnv, _list: JObject) -> Option<Vec<Vec<u8>>> {
+    if let Ok(to_update_jlist) = JList::from_env(&_env, _list){
+        if let Ok(iter) = to_update_jlist.iter(){
             Some(
-                iter.map(|kv|{
-                    let key = _env
-                        .convert_byte_array(kv.0.cast())
-                        .expect("Should be able to convert Key to Rust byte array");
-
-                    let value = _env
-                        .convert_byte_array(kv.1.cast())
-                        .expect("Should be able to convert Value to Rust byte array");
-                    (key, value)
+                iter.map(|elem|{
+                    _env.convert_byte_array(elem.cast())
+                        .expect("Should be able to convert a List element to Rust byte array")
                 }).collect::<Vec<_>>()
             )
         } else {
@@ -283,26 +254,5 @@ pub fn java_map_to_vec_byte(_env: &JNIEnv, _map: JObject) -> Option<Vec<(Vec<u8>
         }
     } else {
         None
-    }
-}
-
-// Converts Java byte[][] to Vec<Vec<u8>>
-pub fn java_array_to_vec_byte(_env: &JNIEnv, java_array: jobjectArray) -> Vec<Vec<u8>> {
-    let java_array_size = _env
-        .get_array_length(java_array)
-        .expect("Should be able to get custom_fields size");
-
-    if java_array_size > 0 {
-        (0.. java_array_size).map(|i|{
-            let jobj = _env
-                .get_object_array_element(java_array, i)
-                .unwrap_or_else(|_| panic!("Should be able to get elem {} of java_array", i));
-
-            let vec = _env.convert_byte_array(jobj.cast())
-                .expect("Should be able to convert to Rust byte array");
-            vec
-        }).collect::<Vec<Vec<u8>>>()
-    } else {
-        vec![]
     }
 }

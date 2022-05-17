@@ -9,6 +9,7 @@ import com.horizen.librust.Library;
 import java.util.*;
 
 public class StorageVersioned implements DefaultReader, ColumnFamilyManager, AutoCloseable {
+
     // Loading the Rust library which contains all the underlying logic
     static {
         Library.load();
@@ -33,9 +34,9 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
     private static native void nativeClose(long storagePointer);
 
     private native byte[] nativeGet(ColumnFamily cf, byte[] key);
-    private native Map<byte[], Optional<byte[]>> nativeMultiGet(ColumnFamily cf, byte[][] keys);
+    private native List<byte[]> nativeMultiGet(ColumnFamily cf, List<byte[]> keys);
     private native boolean nativeIsEmpty(ColumnFamily cf);
-    private native TransactionVersioned nativeCreateTransaction(String versionId);
+    private native TransactionVersioned nativeCreateTransaction(String versionId) throws Exception;
     private native DBIterator nativeGetIter(ColumnFamily cf, int mode, byte[] starting_key, int direction) throws Exception;
     private native ColumnFamily nativeGetColumnFamily(String cf_name);
     private native void nativeSetColumnFamily(String cf_name) throws Exception;
@@ -86,11 +87,11 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
         }
     }
 
-    // Retrieves Key-Value pairs for a specified list of keys in a specified column family from an underlying storage.
-    // For the absent keys the values in corresponding Key-Value pairs are Optional.empty()
-    public Map<byte[], Optional<byte[]>> get(ColumnFamily cf, Set<byte[]> keys){
+    // Retrieves the values correspondingly to a specified list of keys in a specified column family from an underlying storage.
+    // For the absent keys the values in the corresponding positions are null
+    public List<byte[]> get(ColumnFamily cf, List<byte[]> keys){
         checkPointer();
-        return nativeMultiGet(cf, keys.toArray(new byte[0][0]));
+        return nativeMultiGet(cf, keys);
     }
 
     // Retrieves a value for a specified key in a specified column family
@@ -107,20 +108,14 @@ public class StorageVersioned implements DefaultReader, ColumnFamilyManager, Aut
 
     // Creates a transaction for a specified previous version of the storage in 'versionIdOpt',
     // or for a current state of the storage if 'versionIdOpt' is 'Optional.empty().
-    // Returns Optional.of(TransactionVersioned) when transaction is created
-    // or 'Optional.empty()' if transaction can't be created
-    public Optional<TransactionVersioned> createTransaction(Optional<String> versionIdOpt){
+    // Throws Exception with error message if any error occurred
+    public TransactionVersioned createTransaction(Optional<String> versionIdOpt) throws Exception {
         checkPointer();
         String versionId = null;
         if (versionIdOpt.isPresent()){
             versionId = versionIdOpt.get();
         }
-        TransactionVersioned transaction = nativeCreateTransaction(versionId);
-        if(transaction != null){
-            return Optional.of(transaction);
-        } else {
-            return Optional.empty();
-        }
+        return nativeCreateTransaction(versionId);
     }
 
     // Returns forward iterator for all contained keys in a specified column family in an underlying storage

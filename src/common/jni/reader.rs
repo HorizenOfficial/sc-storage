@@ -1,9 +1,9 @@
 use crate::common::Reader;
 use jni::objects::JObject;
 use jni::JNIEnv;
-use jni::sys::{jbyteArray, jobjectArray, jobject, jboolean, JNI_TRUE, jint};
+use jni::sys::{jbyteArray, jobject, jboolean, JNI_TRUE, jint};
 use rocksdb::ColumnFamily;
-use crate::common::jni::{unwrap_ptr, java_array_to_vec_byte, map_to_java_map, create_java_object, exception::_throw_inner};
+use crate::common::jni::{unwrap_ptr, create_java_object, exception::_throw_inner, java_list_to_vec_byte, map_to_java_list_of_values};
 use crate::common::jni::iterator::{parse_starting_key, parse_iterator_mode};
 
 pub(crate) fn get(
@@ -28,19 +28,20 @@ pub(crate) fn get(
 
 pub(crate) fn multi_get(
     reader: &dyn Reader,
-    _env: JNIEnv,
-    _cf: JObject,
-    _keys: jobjectArray
+    _env:  JNIEnv,
+    _cf:   JObject,
+    _keys: JObject  // List<byte[]>
 ) -> jobject
 {
     let cf = unwrap_ptr::<ColumnFamily>(&_env, _cf);
-    let keys = java_array_to_vec_byte(&_env, _keys);
+    let keys = java_list_to_vec_byte(&_env, _keys)
+        .expect("Should be able to convert Java list to Rust vector");
 
-    let key_values = reader.multi_get_cf(
+    let keys_values = reader.multi_get_cf(
         cf,
         keys.iter().map(|k|k.as_slice()).collect::<Vec<_>>().as_slice()
     );
-    map_to_java_map(&_env, &key_values)
+    map_to_java_list_of_values(&_env, &keys, &keys_values)
 }
 
 pub(crate) fn is_empty(

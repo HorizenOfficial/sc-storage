@@ -87,21 +87,42 @@ pub extern "system" fn Java_com_horizen_storageVersioned_StorageVersioned_native
             None
         };
 
-    if let Ok(transaction) = storage.create_transaction(version_id_opt){
-        let transaction_class = _env.find_class("com/horizen/storageVersioned/TransactionVersioned")
-            .expect("Should be able to find class TransactionVersioned");
-        if version_id_opt.is_none(){
-            let default_cf = storage.get_column_family(DEFAULT_CF_NAME)
-                .expect("Should be able to get the default column family from StorageVersioned");
-            create_transaction_java_object(&_env, &transaction_class, transaction, default_cf)
-        } else { // Transaction is opened for some version of the storage so it has its own underlying DB with CFs descriptors
-            // Default CF descriptor should be retrieved from transaction
-            create_transaction_versioned_java_object(&_env, &transaction_class, transaction)
+    match storage.create_transaction(version_id_opt) {
+        Ok(transaction) => {
+            let transaction_class = _env.find_class("com/horizen/storageVersioned/TransactionVersioned")
+                .expect("Should be able to find class TransactionVersioned");
+            if version_id_opt.is_none(){
+                let default_cf = storage.get_column_family(DEFAULT_CF_NAME)
+                    .expect("Should be able to get the default column family from StorageVersioned");
+                create_transaction_java_object(&_env, &transaction_class, transaction, default_cf)
+            } else { // Transaction is opened for some version of the storage so it has its own underlying DB with CFs descriptors
+                // Default CF descriptor should be retrieved from transaction
+                create_transaction_versioned_java_object(&_env, &transaction_class, transaction)
+            }
         }
-
-    } else {
-        JObject::null().into_inner()
+        Err(e) => {
+            throw!(
+                &_env, "java/lang/Exception",
+                format!("Cannot create the versioned transaction: {:?}", e).as_str(),
+                JObject::null().into_inner()
+            )
+        }
     }
+    // if let Ok(transaction) = storage.create_transaction(version_id_opt){
+    //     let transaction_class = _env.find_class("com/horizen/storageVersioned/TransactionVersioned")
+    //         .expect("Should be able to find class TransactionVersioned");
+    //     if version_id_opt.is_none(){
+    //         let default_cf = storage.get_column_family(DEFAULT_CF_NAME)
+    //             .expect("Should be able to get the default column family from StorageVersioned");
+    //         create_transaction_java_object(&_env, &transaction_class, transaction, default_cf)
+    //     } else { // Transaction is opened for some version of the storage so it has its own underlying DB with CFs descriptors
+    //         // Default CF descriptor should be retrieved from transaction
+    //         create_transaction_versioned_java_object(&_env, &transaction_class, transaction)
+    //     }
+    //
+    // } else {
+    //     JObject::null().into_inner()
+    // }
 }
 
 #[no_mangle]
@@ -237,7 +258,7 @@ pub extern "system" fn Java_com_horizen_storageVersioned_StorageVersioned_native
     _env: JNIEnv,
     _storage: JObject,
     _cf: JObject,
-    _keys: jobjectArray
+    _keys: JObject
 ) -> jobject
 {
     reader::multi_get(
@@ -360,7 +381,7 @@ pub extern "system" fn Java_com_horizen_storageVersioned_TransactionVersioned_na
     _env: JNIEnv,
     _transaction: JObject,
     _cf: JObject,
-    _keys: jobjectArray
+    _keys: JObject
 ) -> jobject
 {
     reader::multi_get(
@@ -403,12 +424,13 @@ pub extern "system" fn Java_com_horizen_storageVersioned_TransactionVersioned_na
     _env: JNIEnv,
     _transaction: JObject,
     _cf: JObject,
-    _to_update: JObject,      // Map<byte[], byte[]>
-    _to_delete: jobjectArray  // byte[][]
+    _keys_to_update:   JObject, // List<byte[]>
+    _values_to_update: JObject, // List<byte[]>
+    _keys_to_delete:   JObject  // List<byte[]>
 ){
     transaction_basic::update(
         unwrap_ptr::<TransactionVersioned>(&_env, _transaction),
-        _env, _cf, _to_update, _to_delete
+        _env, _cf, _keys_to_update, _values_to_update, _keys_to_delete
     )
 }
 

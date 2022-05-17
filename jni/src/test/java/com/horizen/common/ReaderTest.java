@@ -12,7 +12,7 @@ public class ReaderTest {
 
     private static final byte[] defaultValue = "defaultValue".getBytes();
 
-    private static boolean contains(Set<byte[]> set, byte[] value){
+    private static boolean contains(List<byte[]> set, byte[] value){
        for(byte[] v : set){
            if (Arrays.equals(v, value))
                return true;
@@ -56,7 +56,7 @@ public class ReaderTest {
     public static boolean run(Reader reader,
                               ColumnFamily cf,
                               ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> existing,
-                              Set<byte[]> absent) {
+                              List<byte[]> absent) {
         try{
             existing.forEach( kv -> {
                         Optional<byte[]> retrievedValue = reader.get(cf, kv.getKey());
@@ -71,26 +71,29 @@ public class ReaderTest {
                     }
             );
 
-            Set<byte[]> existingKeys = existing.stream().map(AbstractMap.SimpleEntry::getKey).collect(Collectors.toSet());
-            Set<byte[]> allKeys = new HashSet<>(existingKeys);
+            List<byte[]> existingKeys = existing.stream().map(AbstractMap.SimpleEntry::getKey).collect(Collectors.toList());
+            List<byte[]> allKeys = new ArrayList<>(existingKeys);
             allKeys.addAll(absent);
 
-            Map<byte[], Optional<byte[]>> kvs = reader.get(cf, allKeys);
-            assertEquals(kvs.keySet().size(), allKeys.size());
+            List<byte[]> allValues = reader.get(cf, allKeys);
+            assertEquals(allValues.size(), allKeys.size());
 
-            kvs.forEach((key, valueOpt) -> {
+            for(int i = 0; i < allValues.size(); i++){
+                byte[] key = allKeys.get(i);
+                byte[] value = allValues.get(i);
+
                 if(contains(existingKeys, key)){
                     assertTrue(
-                            valueOpt.isPresent() &&
-                                    Arrays.equals(valueOpt.get(), get(existing, key))
+                            value != null &&
+                                    Arrays.equals((value), get(existing, key))
                     );
                 } else {
                     assertTrue(
                             contains(absent, key) &&
-                                    !valueOpt.isPresent()
+                                    value == null
                     );
                 }
-            });
+            }
 
             testIter(reader.getIter(cf), existing);
             testRIter(reader.getRIter(cf), existing);
@@ -105,7 +108,7 @@ public class ReaderTest {
 
     public static boolean runDefault(DefaultReader defaultReader,
                                      ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> existing,
-                                     Set<byte[]> absent) {
+                                     List<byte[]> absent) {
         try{
             existing.forEach( kv -> {
                         Optional<byte[]> retrievedValue = defaultReader.get(kv.getKey());
@@ -120,26 +123,29 @@ public class ReaderTest {
                     }
             );
 
-            Set<byte[]> existingKeys = existing.stream().map(AbstractMap.SimpleEntry::getKey).collect(Collectors.toSet());
-            Set<byte[]> allKeys = new HashSet<>(existingKeys);
+            List<byte[]> existingKeys = existing.stream().map(AbstractMap.SimpleEntry::getKey).collect(Collectors.toList());
+            List<byte[]> allKeys = new ArrayList<>(existingKeys);
             allKeys.addAll(absent);
 
-            Map<byte[], Optional<byte[]>> kvs = defaultReader.get(allKeys);
-            assertEquals(kvs.keySet().size(), allKeys.size());
+            List<byte[]> allValues = defaultReader.get(allKeys);
+            assertEquals(allValues.size(), allKeys.size());
 
-            kvs.forEach((key, valueOpt) -> {
+            for(int i = 0; i < allValues.size(); i++){
+                byte[] key = allKeys.get(i);
+                byte[] value = allValues.get(i);
+
                 if(contains(existingKeys, key)){
                     assertTrue(
-                            valueOpt.isPresent() &&
-                                    Arrays.equals(valueOpt.get(), get(existing, key))
+                            value != null &&
+                                    Arrays.equals((value), get(existing, key))
                     );
                 } else {
                     assertTrue(
                             contains(absent, key) &&
-                                    !valueOpt.isPresent()
+                                    value == null
                     );
                 }
-            });
+            }
 
             testIter(defaultReader.getIter(), existing);
             testRIter(defaultReader.getRIter(), existing);

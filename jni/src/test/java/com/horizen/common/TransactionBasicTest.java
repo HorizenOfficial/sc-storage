@@ -25,7 +25,7 @@ public class TransactionBasicTest {
 
         public ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> toInsert = new ArrayList<>(Arrays.asList(entry1, entry2, entry3, entry4));
         public ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> toRemain = new ArrayList<>();
-        public Set<byte[]> toDelete = new HashSet<>(Arrays.asList(k2Bytes, k3Bytes));
+        public ArrayList<byte[]> toDelete = new ArrayList<>(Arrays.asList(k2Bytes, k3Bytes));
 
         public TestData(){
             toInsert.forEach(kv -> {
@@ -50,18 +50,22 @@ public class TransactionBasicTest {
         }
 
         try{
-            HashMap<byte[], byte[]> kvToInsert = new HashMap<>();
-            kvToInsertList.forEach(kv -> kvToInsert.put(kv.getKey(), kv.getValue()));
+            ArrayList<byte[]> keysToInsert = new ArrayList<>();
+            ArrayList<byte[]> valuesToInsert = new ArrayList<>();
+            kvToInsertList.forEach(kv -> {
+                keysToInsert.add(kv.getKey());
+                valuesToInsert.add(kv.getValue());
+            });
 
             transaction.save();
 
-            transaction.update(cf, kvToInsert, new HashSet<>());
+            transaction.update(cf, keysToInsert, valuesToInsert, new ArrayList<>());
             assertFalse(((Reader)transaction).isEmpty(cf));
 
             transaction.rollbackToSavepoint();
             assertTrue(((Reader)transaction).isEmpty(cf));
 
-            transaction.update(cf, kvToInsert, new HashSet<>());
+            transaction.update(cf, keysToInsert, valuesToInsert, new ArrayList<>());
             assertFalse(((Reader)transaction).isEmpty(cf));
 
             transaction.rollback();
@@ -75,14 +79,41 @@ public class TransactionBasicTest {
 
     public static boolean update(TransactionBasic transaction,
                                  ColumnFamily cf,
-                                 ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> kvToInsertList,
-                                 Set<byte[]> kToDelete) {
+                                 List<AbstractMap.SimpleEntry<byte[], byte[]>> kvToInsertList,
+                                 List<byte[]> kToDelete) {
         try {
-            HashMap<byte[], byte[]> kvToInsert = new HashMap<>();
-            kvToInsertList.forEach(kv -> kvToInsert.put(kv.getKey(), kv.getValue()));
+            ArrayList<byte[]> keysToInsert = new ArrayList<>();
+            ArrayList<byte[]> valuesToInsert = new ArrayList<>();
+            kvToInsertList.forEach(kv -> {
+                keysToInsert.add(kv.getKey());
+                valuesToInsert.add(kv.getValue());
+            });
 
-            transaction.update(cf, kvToInsert, new HashSet<>());
-            transaction.update(cf, new HashMap<>(), kToDelete);
+            try{
+                transaction.update(cf, keysToInsert, new ArrayList<>(), kToDelete);
+                fail();
+            } catch (Exception e){
+                assertEquals(
+                        "List of Keys to update should be of the same length as the list of Values",
+                        e.getMessage()
+                );
+            }
+
+            try{
+                transaction.update(cf, new ArrayList<>(), valuesToInsert, kToDelete);
+                fail();
+            } catch (Exception e){
+                assertEquals(
+                        "List of Keys to update should be of the same length as the list of Values",
+                        e.getMessage()
+                );
+            }
+
+            transaction.update(cf, new ArrayList<>(), new ArrayList<>(), kToDelete);
+
+            // Two separate calls to test the 'update' method with empty lists
+            transaction.update(cf, keysToInsert, valuesToInsert, new ArrayList<>());
+            transaction.update(cf, new ArrayList<>(), new ArrayList<>(), kToDelete);
         } catch (Exception e) {
             e.printStackTrace();
             return false;
@@ -91,14 +122,39 @@ public class TransactionBasicTest {
     }
 
     public static boolean defaultUpdate(DefaultTransactionBasic transaction,
-                                        ArrayList<AbstractMap.SimpleEntry<byte[], byte[]>> kvToInsertList,
-                                        Set<byte[]> kToDelete) {
+                                        List<AbstractMap.SimpleEntry<byte[], byte[]>> kvToInsertList,
+                                        List<byte[]> kToDelete) {
         try {
-            HashMap<byte[], byte[]> kvToInsert = new HashMap<>();
-            kvToInsertList.forEach(kv -> kvToInsert.put(kv.getKey(), kv.getValue()));
+            ArrayList<byte[]> keysToInsert = new ArrayList<>();
+            ArrayList<byte[]> valuesToInsert = new ArrayList<>();
+            kvToInsertList.forEach(kv -> {
+                keysToInsert.add(kv.getKey());
+                valuesToInsert.add(kv.getValue());
+            });
 
-            transaction.update(kvToInsert, new HashSet<>());
-            transaction.update(new HashMap<>(), kToDelete);
+            try{
+                transaction.update(keysToInsert, new ArrayList<>(), kToDelete);
+                fail();
+            } catch (Exception e){
+                assertEquals(
+                        "List of Keys to update should be of the same length as the list of Values",
+                        e.getMessage()
+                );
+            }
+
+            try{
+                transaction.update(new ArrayList<>(), valuesToInsert, kToDelete);
+                fail();
+            } catch (Exception e){
+                assertEquals(
+                        "List of Keys to update should be of the same length as the list of Values",
+                        e.getMessage()
+                );
+            }
+
+            // Two separate calls to test the 'update' method with empty lists
+            transaction.update(keysToInsert, valuesToInsert, new ArrayList<>());
+            transaction.update(new ArrayList<>(), new ArrayList<>(), kToDelete);
         } catch (Exception e) {
             e.printStackTrace();
             return false;

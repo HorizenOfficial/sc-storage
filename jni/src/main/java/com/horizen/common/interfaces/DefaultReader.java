@@ -2,6 +2,7 @@ package com.horizen.common.interfaces;
 
 import com.horizen.common.DBIterator;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -15,9 +16,9 @@ public interface DefaultReader extends Reader, DefaultColumnFamily {
         return get(defaultCf(), key);
     }
 
-    // Retrieves Key-Value pairs for a specified list of keys (in the default column family) from an underlying storage.
-    // For the absent keys the values in corresponding Key-Value pairs are Optional.empty()
-    default Map<byte[], Optional<byte[]>> get(Set<byte[]> keys){
+    // Retrieves the values correspondingly to a specified list of keys (in the default column family) from an underlying storage.
+    // For the absent keys the values in the corresponding positions are null
+    default List<byte[]> get(List<byte[]> keys){
         return get(defaultCf(), keys);
     }
 
